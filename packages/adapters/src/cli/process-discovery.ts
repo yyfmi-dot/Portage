@@ -77,11 +77,15 @@ async function posixTable(): Promise<ProcessRow[]> {
     if (!match) continue;
     const pid = Number(match[1]);
     const comm = match[4]!.trim();
+    const commandLine = commandLines.get(pid);
+    // On Linux `comm` is the main thread's name, which programs rename (Node 24 sets "MainThread");
+    // the executable in argv[0] is what identifies the CLI there.
+    const executable = process.platform === "linux" && commandLine ? commandLine.split(/\s+/)[0]! : comm;
     rows.push({
       pid,
       ppid: Number(match[2]),
-      name: comm.split("/").pop() ?? comm,
-      commandLine: commandLines.get(pid) ?? comm,
+      name: executable.split("/").pop() || comm,
+      commandLine: commandLine ?? comm,
       exiting: /[ZE]/.test(match[3]!),
     });
   }

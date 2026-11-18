@@ -34,7 +34,7 @@
 
 - **真实 Codex 三成员房间**：三个真实 Codex 线程（统筹 / 实现 / 评审）以原生回合登记，用户一条消息 → 统筹派发 → 实现方写出 `wordcount.py` 并自测 → 评审通过 → 统筹汇总，约 70 秒走完。6 份投递全部 `submitted` + `native_confirmed`，agent 经 MCP 回复产生 `agent_ack`，同一 trace 因果链完整。第一次跑出的四个根因均已修复：`exec resume` 退回只读沙箱（改为继承会话策略）；只读 MCP 工具在 approval=never 下被拒（补 `destructiveHint: false`）；统筹在回合内轮询收件箱（回复方式层写明发出即可结束回合）；暂缓缺少原因说明（`Delivery.detail`）。
 - **真实 Claude Code**：输入经回读 `native_confirmed`；回合本身因账号组织禁用订阅访问而失败，失败原因如实显示在会话状态上。需要 API key 才能跑完整回合。
-- **Linux（node:22 容器，无 lsof）**：CI 同款步骤 `npm ci` → 类型检查 → 全部测试 → Web 构建。首次运行暴露 `attached` 检测依赖 `lsof`、缺失时静默当作空闲（可能与交互中的会话并发回合）；改为 Linux 直接读 `/proc/<pid>/fd` 后 131 项全过。
+- **Linux（node:22 容器，无 lsof）**：CI 同款步骤 `npm ci` → 类型检查 → 全部测试 → Web 构建。首次运行暴露 `attached` 检测依赖 `lsof`、缺失时静默当作空闲（可能与交互中的会话并发回合）；改为 Linux 直接读 `/proc/<pid>/fd` 后 131 项全过。GitHub Actions 首跑（Node 24）又暴露进程发现在 Linux 上用 `ps comm` 当进程名，而 Node 24 把主线程命名为 `MainThread`，导致基于 Node 的 CLI 被漏掉；改为 Linux 取命令行 argv[0] 的可执行文件名，Node 22 / 24 容器各全过。
 - **房间舞台遮挡检查**：演示协作全程每 150 ms 量一次发言气泡与「已投递 / 已读」标签是否压住其他工位的名称、显示器、状态，或自己的名称；1440×900 下 0 处。用户气泡位置在 1280 / 1440 / 1920 宽度下逐一量过。
 - **浏览器实测（headless Chrome 经 CDP）**：静止房间 0 次画布绘制；统筹房间约 30 fps；API 发送到画面约 110 ms；两页历史加载后阅读位置偏移 ≤ 1 px，到最早一条后按钮消失；改绑 → 「确认新绑定 · 放行 1 条」→ 回到「等待就绪」；原生记录视图的标题、关联标记与同步状态；控制台零错误。
 
