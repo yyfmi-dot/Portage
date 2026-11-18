@@ -1,7 +1,9 @@
-import { compileContext, fnv1a, type ContextSnapshot } from "../context.js";
+import { compileContext, fnv1a, markedMessageIds, type ContextSnapshot } from "../context.js";
 import { applyDeliveryTransition, shouldHoldForConditions, type DeliveryTransition } from "../delivery.js";
 import { acceptMessage } from "../messaging.js";
 import type { PortageBusApi } from "../api.js";
+import type { NativeReadResult, Readiness, VerifyResult } from "../adapter.js";
+import { PolicyFrontmatterError, parsePolicyDocument } from "../policy-frontmatter.js";
 import type {
   Artifact,
   BusEvent,
@@ -14,6 +16,8 @@ import type {
   HoldReason,
   Membership,
   Message,
+  NativeEvent,
+  NativeSyncCheckpoint,
   Participant,
   PolicyDocument,
   ProofLevel,
@@ -26,6 +30,8 @@ import { assertCoordinatorInvariant } from "../wake.js";
 export type SessionRuntime = {
   execution: "idle" | "running" | "waiting_human" | "offline" | "unknown";
   writable: boolean;
+  /** Last thing the host said about this state, e.g. why a native turn failed. */
+  detail?: string;
 };
 
 export type InjectHook = (input: {
@@ -35,21 +41,71 @@ export type InjectHook = (input: {
   compiledQuery: string;
   snapshot: ContextSnapshot;
 }) => Promise<
-  | { ok: true; nativeMessageId?: string; adapterId?: string; proof?: ProofLevel }
+  /** `running`: the submission started a native turn; the session is busy until the host reports otherwise. */
+  | { ok: true; nativeMessageId?: string; adapterId?: string; proof?: ProofLevel; running?: boolean }
   | { ok: false; retryable?: boolean; uncertain?: boolean; error: string }
 >;
+
+/** Adapter-side readiness of the recipient, checked right before a submission. */
+export type ReadinessHook = (session: Session) => Promise<Readiness>;
+
+/** Hold reasons that only the adapter can lift; the daemon tick re-checks them. */
+const ADAPTER_HOLD_REASONS: HoldReason[] = ["attached", "offline"];
+
+export const TUNABLE_BUDGETS = [
+  "maxAutoRounds",
+  "agentMessagesPerMinute",
+  "maxConcurrent",
+  "maxWakeupsPerTrace",
+  "batchWindowMs",
+  "maxContextBytes",
+] as const;
+export type TunableBudget = (typeof TUNABLE_BUDGETS)[number];
+
+const BUDGET_RANGES: Record<TunableBudget, [number, number]> = {
+  maxAutoRounds: [1, 100],
+  agentMessagesPerMinute: [1, 1000],
+  maxConcurrent: [1, 20],
+  maxWakeupsPerTrace: [1, 1000],
+  batchWindowMs: [0, 60_000],
+  maxContextBytes: [1024, 1_048_576],
+};
+
+export function validateBudgets(input: Partial<Record<TunableBudget, unknown>>): Partial<Record<TunableBudget, number>> {
+  const out: Partial<Record<TunableBudget, number>> = {};
+  for (const key of TUNABLE_BUDGETS) {
+    const value = input[key];
+    if (value === undefined) continue;
+    const [min, max] = BUDGET_RANGES[key];
+    if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max)
+      throw new Error(`${key} must be an integer ${min}-${max}`);
+    out[key] = value;
+  }
+  return out;
+}
+
+/** Read back an uncertain submission through the adapter that made it. */
+export type VerifyHook = (input: { session: Session; message: Message; delivery: Delivery }) => Promise<VerifyResult>;
 
 export type MemoryBusOptions = {
   workspaceId?: string;
   inject?: InjectHook;
+  verify?: VerifyHook;
+  readiness?: ReadinessHook;
   now?: () => string;
 };
 
-type RoomState = {
+export type RoomState = {
   paused: boolean;
+  /** Auto rounds of the most recently active trace — what the room summary shows as `rounds/max`. */
   rounds: number;
+  activeTraceId?: string;
+  /** Auto rounds per trace: one trace's agent ping-pong never spends another trace's budget. */
+  traceRounds: Record<string, number>;
   policyRevision: string;
 };
+
+const TRACE_ROUNDS_KEPT = 200;
 
 type EventInput = {
   eventType: BusEventType;
@@ -60,6 +116,10 @@ type EventInput = {
   causalParentIds?: string[];
   payload?: BusEvent["payload"];
 };
+
+const NATIVE_TEXT_LIMIT = 8000;
+/** Native records kept in memory (newest); older ones stay on disk. */
+const NATIVE_EVENTS_KEPT = 20_000;
 
 const DELIVERY_EVENT: Partial<Record<DeliveryState, BusEventType>> = {
   queued: "DeliveryQueued",
@@ -81,6 +141,8 @@ export class MemoryBus implements PortageBusApi {
   readonly workspaceId: string;
   private readonly now: () => string;
   private injectHook?: InjectHook;
+  private verifyHook?: VerifyHook;
+  private readinessHook?: ReadinessHook;
 
   sessions = new Map<string, Session>();
   participants = new Map<string, Participant>();
@@ -95,16 +157,57 @@ export class MemoryBus implements PortageBusApi {
   policyDocuments = new Map<string, PolicyDocument>();
   contextSnapshots = new Map<string, ContextSnapshot>();
   artifacts = new Map<string, Artifact>();
+  nativeEvents: NativeEvent[] = [];
+  nativeCheckpoints = new Map<string, NativeSyncCheckpoint>();
   events: BusEvent[] = [];
   private eventSeq = 0;
   private listeners = new Set<(event: BusEvent) => void>();
+  /** Messages / deliveries changed since the store last persisted them. */
+  private dirtyMessages = new Set<string>();
+  private dirtyDeliveries = new Set<string>();
+  /** Events not yet persisted; unlike `events`, never trimmed, so the EventLog on disk stays complete. */
+  private unsavedEvents: BusEvent[] = [];
+  private unsavedNative: NativeEvent[] = [];
   private idempotency = new Map<string, { message: Message; deliveries: Delivery[] }>();
   private seqByConversation = new Map<string, number>();
+  private messageById = new Map<string, Message>();
+  private messagesByConversation = new Map<string, Message[]>();
+  private messagesByTrace = new Map<string, Message[]>();
+  private deliveryById = new Map<string, Delivery>();
+  private deliveriesByMessage = new Map<string, Delivery[]>();
+  private receiptsByDelivery = new Map<string, DeliveryReceipt[]>();
+  private nativeEventIds = new Set<string>();
+  private nativeBySession = new Map<string, NativeEvent[]>();
+  /** Native input lock: one submission in flight per session, across concurrent flushes. */
+  private inputLocks = new Set<string>();
+  /** Deliveries another flush skipped while the lock was held; flushed when it is released. */
+  private lockWaiters = new Map<string, string[]>();
 
   constructor(options: MemoryBusOptions = {}) {
     this.workspaceId = options.workspaceId ?? "ws_local";
     this.now = options.now ?? (() => new Date().toISOString());
     this.injectHook = options.inject;
+    this.verifyHook = options.verify;
+    this.readinessHook = options.readiness;
+  }
+
+  getMessage(id: string): Message | undefined {
+    return this.messageById.get(id);
+  }
+
+  getDelivery(id: string): Delivery | undefined {
+    return this.deliveryById.get(id);
+  }
+
+  private indexMessage(message: Message) {
+    this.messageById.set(message.id, message);
+    push(this.messagesByConversation, message.conversationId, message);
+    push(this.messagesByTrace, message.traceId, message);
+  }
+
+  private indexDelivery(delivery: Delivery) {
+    this.deliveryById.set(delivery.id, delivery);
+    push(this.deliveriesByMessage, delivery.messageId, delivery);
   }
 
   // ── events ────────────────────────────────────────────────────────────
@@ -139,6 +242,7 @@ export class MemoryBus implements PortageBusApi {
       payload: input.payload ?? {},
     };
     this.events.push(event);
+    this.unsavedEvents.push(event);
     if (this.events.length > EVENT_LIMIT) this.events.splice(0, this.events.length - EVENT_LIMIT);
     for (const listener of this.listeners) {
       try {
@@ -149,21 +253,62 @@ export class MemoryBus implements PortageBusApi {
     }
   }
 
-  /** Rebuild derived indexes after hydrating maps from persistent storage. */
-  restoreIndexes() {
+  /** Return a change set the store could not persist, so the next save retries it. */
+  markDirty(changed: { messages: string[]; deliveries: string[]; events?: BusEvent[]; nativeEvents?: NativeEvent[] }) {
+    for (const id of changed.messages) this.dirtyMessages.add(id);
+    for (const id of changed.deliveries) this.dirtyDeliveries.add(id);
+    if (changed.events?.length) this.unsavedEvents = [...changed.events, ...this.unsavedEvents];
+    if (changed.nativeEvents?.length) this.unsavedNative = [...changed.nativeEvents, ...this.unsavedNative];
+  }
+
+  /**
+   * Rebuild derived indexes after hydrating maps from persistent storage.
+   * `lastEventSeq` continues numbering after events that were persisted but not loaded into memory.
+   */
+  restoreIndexes(lastEventSeq = 0) {
     this.seqByConversation.clear();
+    this.messageById.clear();
+    this.messagesByConversation.clear();
+    this.messagesByTrace.clear();
+    this.deliveryById.clear();
+    this.deliveriesByMessage.clear();
     for (const message of this.messages) {
       const current = this.seqByConversation.get(message.conversationId) ?? 0;
       if (message.seq > current) this.seqByConversation.set(message.conversationId, message.seq);
+      this.indexMessage(message);
     }
+    for (const delivery of this.deliveries) this.indexDelivery(delivery);
+    this.receiptsByDelivery.clear();
+    for (const receipt of this.receipts) push(this.receiptsByDelivery, receipt.deliveryId, receipt);
     this.idempotency.clear();
     for (const message of this.messages) {
       this.idempotency.set(message.idempotencyKey, {
         message,
-        deliveries: this.deliveries.filter((d) => d.messageId === message.id),
+        deliveries: this.deliveriesByMessage.get(message.id) ?? [],
       });
     }
-    this.eventSeq = this.events.reduce((max, e) => Math.max(max, e.seq), 0);
+    this.indexNative();
+    this.eventSeq = this.events.reduce((max, e) => Math.max(max, e.seq), lastEventSeq);
+    for (const state of this.roomState.values()) state.traceRounds ??= {};
+    // A delivery still `dispatching` was interrupted mid-submit: whether it landed is unknown.
+    for (const delivery of this.deliveries) {
+      if (delivery.state === "dispatching") this.transition(delivery, { type: "uncertain" });
+    }
+  }
+
+  /** Hand the changed message / delivery ids to the store and start a new change set. */
+  takeDirty(): { messages: string[]; deliveries: string[]; events: BusEvent[]; nativeEvents: NativeEvent[] } {
+    const changed = {
+      messages: [...this.dirtyMessages],
+      deliveries: [...this.dirtyDeliveries],
+      events: this.unsavedEvents,
+      nativeEvents: this.unsavedNative,
+    };
+    this.dirtyMessages.clear();
+    this.dirtyDeliveries.clear();
+    this.unsavedEvents = [];
+    this.unsavedNative = [];
+    return changed;
   }
 
   // ── policy documents ──────────────────────────────────────────────────
@@ -181,6 +326,49 @@ export class MemoryBus implements PortageBusApi {
     }
   }
 
+  /**
+   * Publish a room collaboration.md. Its frontmatter is executable policy: it is validated against
+   * the schema and the current membership first, and the revision is only published if it applies.
+   */
+  async publishRoomPolicy(input: { conversationId: string; markdown: string; updatedBy: string }) {
+    const { policy: wanted } = parsePolicyDocument(input.markdown.trim());
+    const policy = this.requirePolicy(input.conversationId);
+    const budgets = validateBudgets(wanted);
+
+    const mode = wanted.wakeMode ?? (wanted.coordinator ? "coordinator" : undefined);
+    let coordinatorParticipantId: string | undefined;
+    if (wanted.coordinator) {
+      coordinatorParticipantId = this.resolveMember(input.conversationId, wanted.coordinator);
+      if (!coordinatorParticipantId)
+        throw new PolicyFrontmatterError([`wake.coordinator "${wanted.coordinator}" is not an active member`]);
+    } else if (mode === "coordinator" && policy.wakeMode !== "coordinator" && !this.activeMemberIds(input.conversationId).length) {
+      throw new PolicyFrontmatterError(["wake.mode coordinator needs at least one active member"]);
+    }
+
+    const changesWake =
+      mode !== undefined &&
+      (mode !== policy.wakeMode || (coordinatorParticipantId && coordinatorParticipantId !== policy.coordinatorParticipantId));
+    if (changesWake) {
+      await this.setWakeMode({
+        conversationId: input.conversationId,
+        mode: mode!,
+        coordinatorParticipantId,
+        actorId: input.updatedBy,
+      });
+    }
+    const changesBudget = Object.entries(budgets).some(([k, v]) => policy[k as TunableBudget] !== v);
+    if (changesBudget) {
+      await this.updateRoomPolicy({ conversationId: input.conversationId, actorId: input.updatedBy, ...budgets });
+    }
+    const document = this.publishPolicy({
+      scope: "room",
+      id: input.conversationId,
+      markdown: input.markdown,
+      updatedBy: input.updatedBy,
+    });
+    return { document, policy: structuredClone(policy) };
+  }
+
   /** Publish a new revision of a policy document; revision and hash are owned by the bus. */
   publishPolicy(input: {
     scope: PolicyDocument["scope"];
@@ -190,6 +378,7 @@ export class MemoryBus implements PortageBusApi {
   }): PolicyDocument {
     const markdown = input.markdown.trim();
     if (!markdown) throw new Error("markdown required");
+    parsePolicyDocument(markdown);
     const existing = this.getPolicyDocument(input.scope, input.id);
     const doc: PolicyDocument = {
       id: input.id,
@@ -215,10 +404,6 @@ export class MemoryBus implements PortageBusApi {
     return this.policyDocuments.get(`${scope}:${id}`);
   }
 
-  setInjectHook(hook: InjectHook | undefined) {
-    this.injectHook = hook;
-  }
-
   // ── sessions ──────────────────────────────────────────────────────────
 
   registerSession(input: {
@@ -229,6 +414,7 @@ export class MemoryBus implements PortageBusApi {
     const session: Session = {
       ...input.session,
       workspaceId: input.session.workspaceId ?? this.workspaceId,
+      bindingEpoch: input.session.bindingEpoch ?? 1,
     };
     this.sessions.set(session.id, session);
     const participantId = input.participantId ?? `part_${session.id}`;
@@ -291,14 +477,55 @@ export class MemoryBus implements PortageBusApi {
     return structuredClone(session);
   }
 
-  setSessionExecution(sessionId: string, execution: SessionRuntime["execution"]) {
+  /**
+   * Point the session at another native identity / adapter. The binding epoch moves on, so
+   * deliveries accepted under the old binding are held (`identity_changed`) until confirmed.
+   */
+  rebindSession(input: { sessionId: string; nativeIdentity?: string; adapterId?: string; workdir?: string }): Session {
+    const session = this.requireSession(input.sessionId);
+    const next = {
+      nativeIdentity: input.nativeIdentity ?? session.nativeIdentity,
+      adapterId: input.adapterId ?? session.adapterId,
+      workdir: input.workdir ?? session.workdir,
+    };
+    if (next.nativeIdentity === session.nativeIdentity && next.adapterId === session.adapterId && next.workdir === session.workdir)
+      return structuredClone(session);
+    Object.assign(session, next);
+    session.bindingEpoch = (session.bindingEpoch ?? 1) + 1;
+    this.nativeCheckpoints.delete(session.id);
+    this.emit({
+      eventType: "SessionBindingChanged",
+      entityId: session.id,
+      actorId: "user",
+      payload: { nativeIdentity: session.nativeIdentity, adapterId: session.adapterId ?? null, epoch: session.bindingEpoch },
+    });
+    for (const delivery of this.deliveries) {
+      if (delivery.recipientSessionId === session.id && delivery.state === "queued")
+        this.transition(delivery, { type: "hold", reason: "identity_changed" });
+    }
+    return structuredClone(session);
+  }
+
+  /** The user confirmed the current binding: deliveries held for an identity change go out under it. */
+  async confirmBinding(sessionId: string): Promise<Delivery[]> {
+    const session = this.requireSession(sessionId);
+    for (const delivery of this.deliveries) {
+      if (delivery.recipientSessionId !== sessionId || delivery.reason !== "identity_changed") continue;
+      delivery.bindingEpoch = session.bindingEpoch ?? 1;
+      this.dirtyDeliveries.add(delivery.id);
+    }
+    return this.reevaluate((d) => d.recipientSessionId === sessionId, ["identity_changed"]);
+  }
+
+  setSessionExecution(sessionId: string, execution: SessionRuntime["execution"], detail?: string) {
     const runtime = this.requireRuntime(sessionId);
-    if (runtime.execution === execution) return;
+    if (runtime.execution === execution && runtime.detail === detail) return;
     runtime.execution = execution;
+    runtime.detail = detail;
     this.emit({
       eventType: "SessionExecutionChanged",
       entityId: sessionId,
-      payload: { execution },
+      payload: { execution, detail: detail ?? null },
     });
   }
 
@@ -316,9 +543,220 @@ export class MemoryBus implements PortageBusApi {
   }
 
   /** Mark session ready/idle and dispatch its inbox in order. */
-  async markSessionReady(sessionId: string): Promise<Delivery[]> {
-    this.setSessionExecution(sessionId, "idle");
-    return this.reevaluate((d) => d.recipientSessionId === sessionId, ["busy", "offline"]);
+  async markSessionReady(sessionId: string, detail?: string): Promise<Delivery[]> {
+    this.setSessionExecution(sessionId, "idle", detail);
+    const own = await this.reevaluate((d) => d.recipientSessionId === sessionId, ["busy", "offline"]);
+    await this.releaseSeats(sessionId);
+    return own;
+  }
+
+  /** Host-reported execution change; leaving `running` frees an automatic activity seat. */
+  async reportExecution(sessionId: string, execution: SessionRuntime["execution"], detail?: string): Promise<Delivery[]> {
+    if (execution === "idle") return this.markSessionReady(sessionId, detail);
+    this.setSessionExecution(sessionId, execution, detail);
+    if (execution !== "running") await this.releaseSeats(sessionId);
+    return [];
+  }
+
+  /** Withdraw a delivery that has not been submitted yet. */
+  cancelDelivery(input: { deliveryId: string; actorId: string }): Delivery {
+    const delivery = this.deliveryById.get(input.deliveryId);
+    if (!delivery) throw new Error(`delivery not found: ${input.deliveryId}`);
+    if (!this.transition(delivery, { type: "cancel", reason: "cancelled_by_user" }))
+      throw new Error(`delivery is ${delivery.state}; only queued or held deliveries can be cancelled`);
+    return structuredClone(delivery);
+  }
+
+  /**
+   * Store records read from a session's native transcript. An input that carries a Portage message
+   * id is the native proof of that submission (`native_confirmed`, and it settles an uncertain
+   * delivery); outputs after it are that turn's reply, an inferred relation.
+   */
+  recordNativeRead(sessionId: string, adapterId: string, read: NativeReadResult): NativeEvent[] {
+    this.requireSession(sessionId);
+    const added: NativeEvent[] = [];
+    const own = this.nativeBySession.get(sessionId) ?? [];
+    let lastInput = findLast(own, (e) => e.kind === "input");
+    for (const observation of read.observations) {
+      const id = `${sessionId}:${observation.nativeEventId}`;
+      if (this.nativeEventIds.has(id)) continue;
+      const event: NativeEvent = {
+        id,
+        sessionId,
+        adapterId,
+        nativeEventId: observation.nativeEventId,
+        nativeTime: observation.nativeTime,
+        ingestedAt: this.now(),
+        kind: observation.kind,
+        text: observation.text.length > NATIVE_TEXT_LIMIT ? `${observation.text.slice(0, NATIVE_TEXT_LIMIT)}…` : observation.text,
+        correlation: "unknown",
+      };
+      if (event.kind === "input") {
+        const delivery = this.deliveryForNativeInput(sessionId, observation.text);
+        if (delivery) {
+          event.correlatedDeliveryId = delivery.id;
+          event.correlatedMessageId = delivery.messageId;
+          event.correlation = "exact";
+          this.confirmNatively(delivery, event);
+        }
+        lastInput = event;
+      } else if (event.kind === "turn_started") {
+        // a new turn begins before its input is written: it is not the previous message's
+        lastInput = undefined;
+      } else if (lastInput?.correlatedMessageId) {
+        event.correlatedDeliveryId = lastInput.correlatedDeliveryId;
+        event.correlatedMessageId = lastInput.correlatedMessageId;
+        event.correlation = "inferred";
+      }
+      this.nativeEventIds.add(id);
+      this.nativeEvents.push(event);
+      push(this.nativeBySession, sessionId, event);
+      this.unsavedNative.push(event);
+      added.push(event);
+      const message = event.correlatedMessageId ? this.messageById.get(event.correlatedMessageId) : undefined;
+      this.emit({
+        eventType: "NativeEventObserved",
+        entityId: event.id,
+        actorId: this.participantForSession(sessionId).id,
+        conversationId: message?.conversationId,
+        traceId: message?.traceId,
+        causalParentIds: message ? [message.id] : [],
+        payload: { sessionId, kind: event.kind, correlation: event.correlation, deliveryId: event.correlatedDeliveryId ?? null },
+      });
+    }
+    if (this.nativeEvents.length > NATIVE_EVENTS_KEPT * 1.25) {
+      this.nativeEvents = this.nativeEvents.slice(-NATIVE_EVENTS_KEPT);
+      this.indexNative();
+    }
+    this.nativeCheckpoints.set(sessionId, {
+      sessionId,
+      source: read.source,
+      cursor: read.cursor,
+      lastSuccessAt: this.now(),
+    });
+    return added;
+  }
+
+  /** Record that reading the native transcript failed; the cursor stays where it was. */
+  recordNativeReadError(sessionId: string, source: string, error: string) {
+    const previous = this.nativeCheckpoints.get(sessionId);
+    this.nativeCheckpoints.set(sessionId, { sessionId, source, cursor: previous?.cursor ?? 0, lastSuccessAt: previous?.lastSuccessAt, error });
+  }
+
+  listNativeEvents(sessionId: string, limit = 200): NativeEvent[] {
+    return (this.nativeBySession.get(sessionId) ?? []).slice(-limit);
+  }
+
+  private indexNative() {
+    this.nativeEventIds = new Set(this.nativeEvents.map((e) => e.id));
+    this.nativeBySession.clear();
+    for (const event of this.nativeEvents) push(this.nativeBySession, event.sessionId, event);
+  }
+
+  /** The submitted (or unconfirmed) delivery to this session of a message the native input names. */
+  private deliveryForNativeInput(sessionId: string, text: string): Delivery | undefined {
+    for (const messageId of markedMessageIds(text).reverse()) {
+      const delivery = findLast(
+        this.deliveriesByMessage.get(messageId) ?? [],
+        (d) => d.recipientSessionId === sessionId && ["submitted", "uncertain", "dispatching"].includes(d.state),
+      );
+      if (delivery) return delivery;
+    }
+    return undefined;
+  }
+
+  private confirmNatively(delivery: Delivery, event: NativeEvent) {
+    if (this.hasReceipt(delivery.id, "native_confirmed")) return;
+    this.addReceipt({
+      deliveryId: delivery.id,
+      proofLevel: "native_confirmed",
+      adapterId: event.adapterId,
+      bindingEpoch: delivery.bindingEpoch ?? 1,
+      nativeMessageId: event.nativeEventId,
+      observedAt: this.now(),
+    });
+    if (delivery.state === "uncertain") this.transition(delivery, { type: "confirm" });
+  }
+
+  /**
+   * Resolve uncertain deliveries by reading back through the adapter: confirmed → submitted with
+   * the native evidence; provably absent → queued again (safe retry); otherwise left uncertain.
+   */
+  async reconcileUncertain(): Promise<boolean> {
+    if (!this.verifyHook) return false;
+    let changed = false;
+    for (const delivery of this.deliveries.filter((d) => d.state === "uncertain")) {
+      const message = this.messageById.get(delivery.messageId);
+      const session = this.sessions.get(delivery.recipientSessionId);
+      if (!message || !session || !delivery.compiledContextHash) continue;
+      let result: VerifyResult;
+      try {
+        result = await this.verifyHook({ session, message, delivery });
+      } catch (error) {
+        result = { status: "unknown", error: String(error) };
+      }
+      if (result.status === "present") {
+        this.addReceipt({
+          deliveryId: delivery.id,
+          proofLevel: "submitted",
+          adapterId: "readback",
+          bindingEpoch: delivery.bindingEpoch ?? 1,
+          nativeMessageId: result.nativeMessageId,
+          observedAt: this.now(),
+        });
+        this.transition(delivery, { type: "confirm" });
+        changed = true;
+      } else if (result.status === "absent") {
+        this.transition(delivery, { type: "retry" });
+        await this.flushDeliveries([delivery.id]);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  /** Re-check deliveries waiting for a seat in every room this session belongs to. */
+  private async releaseSeats(sessionId: string) {
+    const rooms = new Set(this.activeRoomsForSession(sessionId).map((r) => r.id));
+    if (!rooms.size) return;
+    await this.reevaluate((d) => rooms.has(d.conversationId) && d.state === "queued" && d.reason === "seats", []);
+  }
+
+  /**
+   * Time-driven recovery, called periodically by the daemon: rate-limited deliveries are released
+   * once their room's one-minute window has room again. Returns whether anything changed.
+   */
+  async tick(): Promise<boolean> {
+    let changed = await this.reconcileUncertain();
+    for (const [conversationId, policy] of this.policies) {
+      const waiting = this.deliveries.some(
+        (d) => d.conversationId === conversationId && d.state === "held" && d.reason === "budget",
+      );
+      if (!waiting || this.agentMessagesInWindow(conversationId) > policy.agentMessagesPerMinute) continue;
+      await this.reevaluate((d) => d.conversationId === conversationId && d.reason === "budget", ["budget"]);
+      changed = true;
+    }
+    if (await this.recheckAdapterHolds()) changed = true;
+    return changed;
+  }
+
+  /** Release deliveries held by the adapter (session attached elsewhere, host unavailable) once it is ready. */
+  private async recheckAdapterHolds(): Promise<boolean> {
+    if (!this.readinessHook) return false;
+    const sessions = new Set(
+      this.deliveries
+        .filter((d) => d.state === "held" && d.reason && ADAPTER_HOLD_REASONS.includes(d.reason))
+        .map((d) => d.recipientSessionId),
+    );
+    let changed = false;
+    for (const sessionId of sessions) {
+      const session = this.sessions.get(sessionId);
+      if (!session || this.runtime.get(sessionId)?.execution === "offline") continue;
+      if (!(await this.readinessHook(session)).ready) continue;
+      await this.reevaluate((d) => d.recipientSessionId === sessionId, ADAPTER_HOLD_REASONS);
+      changed = true;
+    }
+    return changed;
   }
 
   async listSessions(): Promise<Session[]> {
@@ -360,7 +798,7 @@ export class MemoryBus implements PortageBusApi {
       wakeMode: input.wakeMode ?? "swarm",
       coordinatorParticipantId: input.coordinatorParticipantId,
     }));
-    this.roomState.set(conversation.id, { paused: false, rounds: 0, policyRevision: "1" });
+    this.roomState.set(conversation.id, { paused: false, rounds: 0, traceRounds: {}, policyRevision: "1" });
     this.emit({
       eventType: "RoomCreated",
       entityId: conversation.id,
@@ -387,7 +825,7 @@ export class MemoryBus implements PortageBusApi {
     };
     this.conversations.set(id, conversation);
     this.policies.set(id, defaultPolicy(id, { wakeMode: "manual" }));
-    this.roomState.set(id, { paused: false, rounds: 0, policyRevision: "1" });
+    this.roomState.set(id, { paused: false, rounds: 0, traceRounds: {}, policyRevision: "1" });
     this.memberships.push({
       conversationId: id,
       participantId: participant.id,
@@ -412,40 +850,30 @@ export class MemoryBus implements PortageBusApi {
     return this.reevaluate((d) => d.conversationId === conversationId, ["room_paused"]);
   }
 
-  async updateRoomPolicy(input: {
-    conversationId: string;
-    maxAutoRounds?: number;
-    agentMessagesPerMinute?: number;
-  }): Promise<RoomPolicy> {
+  async updateRoomPolicy(
+    input: { conversationId: string; actorId?: string } & Partial<Record<TunableBudget, number>>,
+  ): Promise<RoomPolicy> {
     const policy = this.requirePolicy(input.conversationId);
-    if (input.maxAutoRounds !== undefined) {
-      if (!Number.isInteger(input.maxAutoRounds) || input.maxAutoRounds < 1 || input.maxAutoRounds > 100)
-        throw new Error("maxAutoRounds must be an integer 1-100");
-      policy.maxAutoRounds = input.maxAutoRounds;
-    }
-    if (input.agentMessagesPerMinute !== undefined) {
-      const value = input.agentMessagesPerMinute;
-      if (!Number.isInteger(value) || value < 1 || value > 1000)
-        throw new Error("agentMessagesPerMinute must be an integer 1-1000");
-      policy.agentMessagesPerMinute = value;
-    }
+    const changes = validateBudgets(input);
+    Object.assign(policy, changes);
     this.bumpPolicyRevision(input.conversationId);
     this.emit({
       eventType: "RoomPolicyChanged",
       entityId: input.conversationId,
-      actorId: "user",
+      actorId: input.actorId ?? "user",
       conversationId: input.conversationId,
-      payload: {
-        maxAutoRounds: policy.maxAutoRounds,
-        agentMessagesPerMinute: policy.agentMessagesPerMinute,
-      },
+      payload: Object.fromEntries(TUNABLE_BUDGETS.map((key) => [key, policy[key]])),
     });
-    const room = this.requireRoomState(input.conversationId);
-    const releasable: HoldReason[] = [];
-    if (room.rounds <= policy.maxAutoRounds) releasable.push("round_budget");
+    const releasable: HoldReason[] = ["round_budget", "wakeup_budget", "context_too_large"];
     if (this.agentMessagesInWindow(input.conversationId) <= policy.agentMessagesPerMinute)
       releasable.push("budget");
-    await this.reevaluate((d) => d.conversationId === input.conversationId, releasable);
+    await this.reevaluate(
+      (d) =>
+        d.conversationId === input.conversationId &&
+        !(d.reason === "round_budget" && this.roundsForDelivery(d) > policy.maxAutoRounds) &&
+        !(d.reason === "wakeup_budget" && this.wakeupRank(d) > (policy.maxWakeupsPerTrace ?? 20)),
+      releasable,
+    );
     return structuredClone(policy);
   }
 
@@ -566,6 +994,7 @@ export class MemoryBus implements PortageBusApi {
     conversationId: string;
     mode: RoomPolicy["wakeMode"];
     coordinatorParticipantId?: string;
+    actorId?: string;
   }): Promise<RoomPolicy> {
     const policy = this.requirePolicy(input.conversationId);
     const previous = structuredClone(policy);
@@ -585,7 +1014,7 @@ export class MemoryBus implements PortageBusApi {
     this.emit({
       eventType: "RoomPolicyChanged",
       entityId: input.conversationId,
-      actorId: "user",
+      actorId: input.actorId ?? "user",
       conversationId: input.conversationId,
       payload: {
         wakeMode: policy.wakeMode,
@@ -660,7 +1089,7 @@ export class MemoryBus implements PortageBusApi {
       }
       return structuredClone({
         message: cached.message,
-        deliveries: this.deliveries.filter((d) => d.messageId === cached.message.id),
+        deliveries: this.deliveriesByMessage.get(cached.message.id) ?? [],
       });
     }
 
@@ -727,6 +1156,7 @@ export class MemoryBus implements PortageBusApi {
 
     const seq = (this.seqByConversation.get(input.conversationId) ?? 0) + 1;
     this.seqByConversation.set(input.conversationId, seq);
+    const traceId = input.traceId ?? `trace_${input.idempotencyKey}`;
 
     const result = acceptMessage({
       workspaceId: conversation.workspaceId,
@@ -743,18 +1173,37 @@ export class MemoryBus implements PortageBusApi {
       extraParts,
       mentionParticipantIds: input.mentionParticipantIds,
       idempotencyKey: input.idempotencyKey,
-      traceId: input.traceId,
+      traceId,
       causalParentIds: input.causalParentIds,
       source: input.source,
       seq,
-      currentRounds: room.rounds,
+      currentRounds: room.traceRounds[traceId] ?? 0,
       sessionGate,
     });
 
-    room.rounds = result.rounds;
+    this.recordTraceRounds(room, traceId, result.rounds);
     result.message.createdAt = this.now();
+    if (!senderIsUser && !input.isManualWake) {
+      const spent = this.agentWakeupsOnTrace(input.conversationId, traceId);
+      const cap = policy.maxWakeupsPerTrace ?? 20;
+      result.deliveries.forEach((delivery, index) => {
+        if (spent + index + 1 <= cap || delivery.state !== "queued") return;
+        const held = applyDeliveryTransition(delivery, { type: "hold", reason: "wakeup_budget" });
+        if (held.ok) Object.assign(delivery, held.delivery);
+      });
+    }
+    for (const delivery of result.deliveries) {
+      if (delivery.reason === "budget") delivery.nextAttemptAt = this.rateWindowReopensAt(input.conversationId);
+      delivery.bindingEpoch = this.sessions.get(delivery.recipientSessionId)?.bindingEpoch ?? 1;
+    }
     this.messages.push(result.message);
+    this.indexMessage(result.message);
     this.deliveries.push(...result.deliveries);
+    this.dirtyMessages.add(result.message.id);
+    for (const delivery of result.deliveries) {
+      this.indexDelivery(delivery);
+      this.dirtyDeliveries.add(delivery.id);
+    }
     this.idempotency.set(input.idempotencyKey, {
       message: result.message,
       deliveries: result.deliveries,
@@ -794,31 +1243,44 @@ export class MemoryBus implements PortageBusApi {
       });
     }
     for (const delivery of result.deliveries) this.emitDelivery(delivery);
+    if (!senderIsUser) this.acknowledgeByReply(input.senderId, result.message.causalParentIds);
 
     await this.flushDeliveries(result.deliveries.map((d) => d.id));
 
     return structuredClone({
       message: result.message,
-      deliveries: this.deliveries.filter((d) => d.messageId === result.message.id),
+      deliveries: this.deliveriesByMessage.get(result.message.id) ?? [],
     });
   }
 
+  /** Answering a message is verifiable proof its recipient read it. */
+  private acknowledgeByReply(senderId: string, parentIds: string[]) {
+    const sessionId = this.participants.get(senderId)?.sessionId;
+    if (!sessionId) return;
+    for (const parentId of parentIds) {
+      const delivery = (this.deliveriesByMessage.get(parentId) ?? []).find(
+        (d) => d.recipientSessionId === sessionId && d.state === "submitted",
+      );
+      if (delivery) this.acknowledgeDelivery({ deliveryId: delivery.id, sessionId, via: "reply" });
+    }
+  }
+
   /** Revise a user message: keeps id, bumps revision; pending deliveries pick up the new version. */
-  reviseMessage(input: { messageId: string; text: string; actorId: string }): Message {
-    const message = this.messages.find((m) => m.id === input.messageId);
+  async reviseMessage(input: { messageId: string; text: string; actorId: string }): Promise<Message> {
+    const message = this.messageById.get(input.messageId);
     if (!message) throw new Error(`message not found: ${input.messageId}`);
     if (message.senderId !== input.actorId) throw new Error("only the sender can revise");
     const text = input.text.trim();
     if (!text) throw new Error("text required");
     message.parts = [{ kind: "text", text }, ...message.parts.filter((p) => p.kind !== "text")];
     message.revision += 1;
-    for (const delivery of this.deliveries) {
-      if (
-        delivery.messageId === message.id &&
-        (delivery.state === "queued" || delivery.state === "held")
-      ) {
-        delivery.messageRevision = message.revision;
-      }
+    this.dirtyMessages.add(message.id);
+    const pending = (this.deliveriesByMessage.get(message.id) ?? []).filter(
+      (d) => d.state === "queued" || d.state === "held",
+    );
+    for (const delivery of pending) {
+      delivery.messageRevision = message.revision;
+      this.dirtyDeliveries.add(delivery.id);
     }
     this.emit({
       eventType: "MessageRevised",
@@ -828,6 +1290,8 @@ export class MemoryBus implements PortageBusApi {
       traceId: message.traceId,
       payload: { revision: message.revision },
     });
+    // A shorter revision may fit the context budget now.
+    await this.reevaluate((d) => d.messageId === message.id, ["context_too_large"]);
     return structuredClone(message);
   }
 
@@ -878,7 +1342,29 @@ export class MemoryBus implements PortageBusApi {
   }
 
   async listMessages(conversationId: string): Promise<Message[]> {
-    return this.messages.filter((m) => m.conversationId === conversationId);
+    return [...(this.messagesByConversation.get(conversationId) ?? [])];
+  }
+
+  /** Up to `limit` messages of a conversation before `beforeSeq` (oldest first), and whether older ones exist. */
+  messagePage(conversationId: string, limit: number, beforeSeq = Number.POSITIVE_INFINITY): { messages: Message[]; hasMore: boolean } {
+    const all = this.messagesByConversation.get(conversationId) ?? [];
+    let lo = 0;
+    let hi = all.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (all[mid]!.seq < beforeSeq) lo = mid + 1;
+      else hi = mid;
+    }
+    const start = Math.max(0, lo - limit);
+    return { messages: all.slice(start, lo), hasMore: start > 0 };
+  }
+
+  deliveriesForMessage(messageId: string): Delivery[] {
+    return this.deliveriesByMessage.get(messageId) ?? [];
+  }
+
+  receiptsForDelivery(deliveryId: string): DeliveryReceipt[] {
+    return this.receiptsByDelivery.get(deliveryId) ?? [];
   }
 
   async listInbox(sessionId: string): Promise<Delivery[]> {
@@ -890,7 +1376,16 @@ export class MemoryBus implements PortageBusApi {
   }
 
   async getReceipts(deliveryId: string): Promise<DeliveryReceipt[]> {
-    return this.receipts.filter((r) => r.deliveryId === deliveryId);
+    return [...(this.receiptsByDelivery.get(deliveryId) ?? [])];
+  }
+
+  private hasReceipt(deliveryId: string, proofLevel: ProofLevel) {
+    return (this.receiptsByDelivery.get(deliveryId) ?? []).some((r) => r.proofLevel === proofLevel);
+  }
+
+  private addReceipt(receipt: DeliveryReceipt) {
+    this.receipts.push(receipt);
+    push(this.receiptsByDelivery, receipt.deliveryId, receipt);
   }
 
   /**
@@ -898,37 +1393,34 @@ export class MemoryBus implements PortageBusApi {
    * `submitted` only proves the text reached the native inbox; `agent_ack` proves the agent read it.
    */
   unreadDeliveries(sessionId: string): Array<{ delivery: Delivery; message: Message; snapshot?: ContextSnapshot }> {
-    const acked = new Set(
-      this.receipts.filter((r) => r.proofLevel === "agent_ack").map((r) => r.deliveryId),
-    );
     return this.deliveries
-      .filter((d) => d.recipientSessionId === sessionId && d.state === "submitted" && !acked.has(d.id))
+      .filter((d) => d.recipientSessionId === sessionId && d.state === "submitted" && !this.hasReceipt(d.id, "agent_ack"))
       .map((delivery) => ({
         delivery,
-        message: this.messages.find((m) => m.id === delivery.messageId)!,
+        message: this.messageById.get(delivery.messageId)!,
         snapshot: this.contextSnapshots.get(delivery.id),
       }))
       .filter((item) => item.message)
       .sort((a, b) => a.message.createdAt.localeCompare(b.message.createdAt) || a.message.seq - b.message.seq);
   }
 
-  /** Record that the agent behind `sessionId` read a delivery. Idempotent per delivery. */
-  acknowledgeDelivery(input: { deliveryId: string; sessionId: string }): DeliveryReceipt {
-    const delivery = this.deliveries.find((d) => d.id === input.deliveryId);
+  /** Record that the agent behind `sessionId` read a delivery (`via` how we know). Idempotent per delivery. */
+  acknowledgeDelivery(input: { deliveryId: string; sessionId: string; via?: "mcp" | "reply" }): DeliveryReceipt {
+    const delivery = this.deliveryById.get(input.deliveryId);
     if (!delivery) throw new Error(`delivery not found: ${input.deliveryId}`);
     if (delivery.recipientSessionId !== input.sessionId) throw new Error("delivery belongs to another session");
     if (delivery.state !== "submitted") throw new Error(`delivery is ${delivery.state}, not submitted`);
-    const existing = this.receipts.find((r) => r.deliveryId === delivery.id && r.proofLevel === "agent_ack");
+    const existing = this.receiptsByDelivery.get(delivery.id)?.find((r) => r.proofLevel === "agent_ack");
     if (existing) return structuredClone(existing);
     const receipt: DeliveryReceipt = {
       deliveryId: delivery.id,
       proofLevel: "agent_ack",
-      adapterId: "mcp",
+      adapterId: input.via ?? "mcp",
       bindingEpoch: delivery.bindingEpoch ?? 1,
       observedAt: this.now(),
     };
-    this.receipts.push(receipt);
-    const message = this.messages.find((m) => m.id === delivery.messageId);
+    this.addReceipt(receipt);
+    const message = this.messageById.get(delivery.messageId);
     this.emit({
       eventType: "DeliveryAcknowledged",
       entityId: delivery.id,
@@ -974,14 +1466,15 @@ export class MemoryBus implements PortageBusApi {
       }
     }
     await this.flushDeliveries(pending.map((d) => d.id));
-    return pending.map((d) => structuredClone(this.deliveries.find((x) => x.id === d.id)!));
+    return pending.map((d) => structuredClone(this.deliveryById.get(d.id)!));
   }
 
   private async flushDeliveries(deliveryIds: string[]) {
+    const dispatches: Promise<void>[] = [];
     for (const id of deliveryIds) {
-      const delivery = this.deliveries.find((d) => d.id === id);
+      const delivery = this.deliveryById.get(id);
       if (!delivery || delivery.state !== "queued") continue;
-      const message = this.messages.find((m) => m.id === delivery.messageId);
+      const message = this.messageById.get(delivery.messageId);
       if (!message) continue;
 
       const session = this.requireSession(delivery.recipientSessionId);
@@ -991,6 +1484,11 @@ export class MemoryBus implements PortageBusApi {
         delivery.conversationId,
         delivery.recipientSessionId,
       );
+
+      if ((delivery.bindingEpoch ?? 1) !== (session.bindingEpoch ?? 1)) {
+        this.transition(delivery, { type: "hold", reason: "identity_changed" });
+        continue;
+      }
 
       const decision = shouldHoldForConditions({
         communicationEnabled: session.communicationEnabled,
@@ -1006,33 +1504,66 @@ export class MemoryBus implements PortageBusApi {
         this.transition(delivery, { type: "hold", reason: decision.reason });
         continue;
       }
-      if (decision.action === "queue") {
-        if (delivery.reason !== decision.reason) {
-          delivery.reason = decision.reason;
-          this.emitDelivery(delivery);
-        }
+      const seatsFull =
+        message.source !== "user" &&
+        this.conversations.get(delivery.conversationId)?.kind === "room" &&
+        this.runningSeats(delivery.conversationId, delivery.recipientSessionId) >=
+          this.requirePolicy(delivery.conversationId).maxConcurrent;
+      if (this.inputLocks.has(session.id) && decision.action === "dispatch" && !seatsFull) {
+        push(this.lockWaiters, session.id, delivery.id);
+        continue;
+      }
+      const queueReason = decision.action === "queue" ? decision.reason : seatsFull ? "seats" : undefined;
+      if (queueReason) {
+        this.markQueued(delivery, queueReason);
         continue;
       }
 
-      if (!this.transition(delivery, { type: "lease" })) continue;
-      delivery.messageRevision = message.revision;
       const snapshot = this.compileFor(delivery.conversationId, delivery.recipientSessionId, message);
+      if (snapshot.overflow) {
+        this.transition(delivery, { type: "hold", reason: "context_too_large" });
+        continue;
+      }
+
+      // Taken before the first await, so later deliveries to this session wait their turn (in order)
+      // while deliveries to other sessions dispatch concurrently.
+      this.inputLocks.add(session.id);
+      dispatches.push(this.dispatch(delivery, session, message, snapshot));
+    }
+    await Promise.all(dispatches);
+  }
+
+  /** Readiness, lease and inject for one delivery whose session input lock the caller holds. */
+  private async dispatch(delivery: Delivery, session: Session, message: Message, snapshot: ContextSnapshot) {
+    try {
+      if (this.readinessHook) {
+        const readiness = await this.readinessHook(session);
+        if (delivery.state !== "queued") return;
+        if (!readiness.ready) {
+          if (readiness.reason === "busy") this.markQueued(delivery, "busy");
+          else this.transition(delivery, { type: "hold", reason: readiness.reason, detail: readiness.detail });
+          return;
+        }
+      }
+      if (!this.transition(delivery, { type: "lease" })) return;
+      delivery.messageRevision = message.revision;
       delivery.compiledContextHash = snapshot.hash;
       this.contextSnapshots.set(delivery.id, snapshot);
 
       if (!this.injectHook) {
         this.recordSubmitted(delivery, { adapterId: "memory", proof: "submitted" });
-        continue;
+        return;
       }
 
-      const result = await this.injectHook({
-        session,
-        message,
-        delivery,
-        compiledQuery: snapshot.query,
-        snapshot,
-      });
+      let result: Awaited<ReturnType<InjectHook>>;
+      try {
+        result = await this.injectHook({ session, message, delivery, compiledQuery: snapshot.query, snapshot });
+      } catch (error) {
+        // The adapter failed mid-submit; the text may or may not have reached the native side.
+        result = { ok: false, uncertain: true, error: error instanceof Error ? error.message : String(error) };
+      }
       if (result.ok) {
+        if (result.running) this.setSessionExecution(session.id, "running");
         this.recordSubmitted(delivery, {
           adapterId: result.adapterId ?? "hook",
           proof: result.proof ?? "submitted",
@@ -1045,14 +1576,28 @@ export class MemoryBus implements PortageBusApi {
       } else {
         this.transition(delivery, { type: "fail", reason: result.error });
       }
+    } finally {
+      this.inputLocks.delete(session.id);
+      const waiting = this.lockWaiters.get(session.id);
+      if (waiting) {
+        this.lockWaiters.delete(session.id);
+        await this.flushDeliveries(waiting);
+      }
     }
+  }
+
+  /** Keep a delivery queued (in order) and say why, emitting only when the reason changes. */
+  private markQueued(delivery: Delivery, reason: HoldReason) {
+    if (delivery.reason === reason) return;
+    delivery.reason = reason;
+    this.emitDelivery(delivery);
   }
 
   private recordSubmitted(
     delivery: Delivery,
     proof: { adapterId: string; proof: ProofLevel; nativeMessageId?: string },
   ) {
-    this.receipts.push({
+    this.addReceipt({
       deliveryId: delivery.id,
       proofLevel: proof.proof,
       adapterId: proof.adapterId,
@@ -1094,6 +1639,7 @@ export class MemoryBus implements PortageBusApi {
         ? `${recipient.displayName} · ${recipient.provider}/${recipient.host}${isCoordinator ? " · 当前统筹者（路由）" : ""}`
         : "房间成员",
       sourceLabel: `${this.senderLabel(message.senderId)} → ${isRoom ? conversation.title : "私聊"} · scope=${conversation.id}`,
+      replyThroughPortage: isRoom,
       maxContextBytes: policy.maxContextBytes,
     });
   }
@@ -1101,16 +1647,19 @@ export class MemoryBus implements PortageBusApi {
   private transition(delivery: Delivery, transition: DeliveryTransition): boolean {
     const next = applyDeliveryTransition(delivery, transition);
     if (!next.ok) return false;
-    const changed = next.delivery.state !== delivery.state || next.delivery.reason !== delivery.reason;
+    const changed =
+      next.delivery.state !== delivery.state || next.delivery.reason !== delivery.reason || next.delivery.detail !== delivery.detail;
+    delete delivery.detail;
     Object.assign(delivery, next.delivery);
     if (changed) this.emitDelivery(delivery);
     return true;
   }
 
   private emitDelivery(delivery: Delivery) {
+    this.dirtyDeliveries.add(delivery.id);
     const eventType = DELIVERY_EVENT[delivery.state];
     if (!eventType) return;
-    const message = this.messages.find((m) => m.id === delivery.messageId);
+    const message = this.messageById.get(delivery.messageId);
     this.emit({
       eventType,
       entityId: delivery.id,
@@ -1123,19 +1672,86 @@ export class MemoryBus implements PortageBusApi {
         recipientSessionId: delivery.recipientSessionId,
         state: delivery.state,
         reason: delivery.reason ?? null,
+        detail: delivery.detail ?? null,
         compiledContextHash: delivery.compiledContextHash ?? null,
       },
     });
   }
 
-  private agentMessagesInWindow(conversationId: string): number {
+  private recordTraceRounds(room: RoomState, traceId: string, rounds: number) {
+    delete room.traceRounds[traceId];
+    room.traceRounds[traceId] = rounds;
+    const traces = Object.keys(room.traceRounds);
+    for (const stale of traces.slice(0, Math.max(0, traces.length - TRACE_ROUNDS_KEPT))) {
+      delete room.traceRounds[stale];
+    }
+    room.activeTraceId = traceId;
+    room.rounds = rounds;
+  }
+
+  /** Deliveries caused by agent messages on one trace, in acceptance order. */
+  private agentWakeupsFor(conversationId: string, traceId: string): Delivery[] {
+    return (this.messagesByTrace.get(traceId) ?? [])
+      .filter((m) => m.conversationId === conversationId && m.source !== "user")
+      .flatMap((m) => this.deliveriesByMessage.get(m.id) ?? []);
+  }
+
+  private agentWakeupsOnTrace(conversationId: string, traceId: string): number {
+    return this.agentWakeupsFor(conversationId, traceId).length;
+  }
+
+  /** Agent message times in the conversation's current rate window, newest first. */
+  private agentMessageTimesInWindow(conversationId: string): number[] {
     const since = Date.parse(this.now()) - RATE_WINDOW_MS;
-    return this.messages.filter(
-      (m) =>
-        m.conversationId === conversationId &&
-        m.source !== "user" &&
-        Date.parse(m.createdAt) >= since,
-    ).length;
+    const list = this.messagesByConversation.get(conversationId) ?? [];
+    const times: number[] = [];
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const at = Date.parse(list[i]!.createdAt);
+      if (at < since) break;
+      if (list[i]!.source !== "user") times.push(at);
+    }
+    return times;
+  }
+
+  /** When the oldest agent message in the current rate window ages out. */
+  private rateWindowReopensAt(conversationId: string): string {
+    const times = this.agentMessageTimesInWindow(conversationId);
+    const oldest = times.length ? Math.min(...times) : Date.parse(this.now());
+    return new Date(oldest + RATE_WINDOW_MS).toISOString();
+  }
+
+  /** Room members (other than `exceptSessionId`) whose host reports an active turn. */
+  private runningSeats(conversationId: string, exceptSessionId: string): number {
+    return this.activeMemberIds(conversationId)
+      .map((id) => this.participants.get(id)?.sessionId)
+      .filter((id): id is string => Boolean(id) && id !== exceptSessionId)
+      .filter((id) => this.runtime.get(id)?.execution === "running" || this.inputLocks.has(id)).length;
+  }
+
+  /** Active member matching a participant id, session id or alias. */
+  private resolveMember(conversationId: string, ref: string): string | undefined {
+    const needle = ref.replace(/^@/, "");
+    return this.activeMemberIds(conversationId).find((id) => {
+      const sessionId = this.participants.get(id)?.sessionId;
+      return id === needle || sessionId === needle || (sessionId && this.sessions.get(sessionId)?.alias === needle);
+    });
+  }
+
+  /** 1-based position of this delivery among agent-caused wakeups on its trace. */
+  private wakeupRank(delivery: Delivery): number {
+    const traceId = this.messageById.get(delivery.messageId)?.traceId;
+    if (!traceId) return 0;
+    return this.agentWakeupsFor(delivery.conversationId, traceId).findIndex((d) => d.id === delivery.id) + 1;
+  }
+
+  private roundsForDelivery(delivery: Delivery): number {
+    const traceId = this.messageById.get(delivery.messageId)?.traceId;
+    const room = this.roomState.get(delivery.conversationId);
+    return (traceId && room?.traceRounds[traceId]) || 0;
+  }
+
+  private agentMessagesInWindow(conversationId: string): number {
+    return this.agentMessageTimesInWindow(conversationId).length;
   }
 
   private senderLabel(senderId: string) {
@@ -1207,6 +1823,17 @@ export class MemoryBus implements PortageBusApi {
   }
 }
 
+function findLast<T>(items: T[], match: (item: T) => boolean): T | undefined {
+  for (let i = items.length - 1; i >= 0; i -= 1) if (match(items[i]!)) return items[i];
+  return undefined;
+}
+
+function push<T>(map: Map<string, T[]>, key: string, value: T) {
+  const list = map.get(key);
+  if (list) list.push(value);
+  else map.set(key, [value]);
+}
+
 function defaultPolicy(
   conversationId: string,
   input: { wakeMode: WakeMode; coordinatorParticipantId?: string },
@@ -1219,6 +1846,7 @@ function defaultPolicy(
     maxConcurrent: 2,
     agentMessagesPerMinute: 12,
     maxAutoRounds: 4,
+    maxWakeupsPerTrace: 20,
     maxContextBytes: 32768,
   };
 }

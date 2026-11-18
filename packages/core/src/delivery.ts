@@ -1,7 +1,7 @@
 import type { Delivery, DeliveryState, HoldReason } from "./types.js";
 
 export type DeliveryTransition =
-  | { type: "hold"; reason: HoldReason }
+  | { type: "hold"; reason: HoldReason; detail?: string }
   | { type: "release" }
   | { type: "lease" }
   | { type: "submitted" }
@@ -9,7 +9,7 @@ export type DeliveryTransition =
   | { type: "uncertain" }
   | { type: "confirm" }
   | { type: "retry" }
-  | { type: "cancel" };
+  | { type: "cancel"; reason?: HoldReason };
 
 const ALLOWED: Record<DeliveryState, DeliveryTransition["type"][]> = {
   queued: ["hold", "lease", "cancel"],
@@ -40,16 +40,19 @@ export function applyDeliveryTransition(
     };
   }
 
-  const next: Delivery = { ...delivery };
+  const { detail: _previous, ...rest } = delivery;
+  const next: Delivery = rest;
 
   switch (transition.type) {
     case "hold":
       next.state = "held";
       next.reason = transition.reason;
+      if (transition.detail) next.detail = transition.detail;
       break;
     case "release":
       next.state = "queued";
       next.reason = undefined;
+      next.nextAttemptAt = undefined;
       break;
     case "lease":
       next.state = "dispatching";
@@ -77,6 +80,7 @@ export function applyDeliveryTransition(
       break;
     case "cancel":
       next.state = "cancelled";
+      next.reason = transition.reason ?? next.reason;
       break;
   }
 

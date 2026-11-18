@@ -1,4 +1,4 @@
-import type { AdapterCapabilityFlags, Endpoint, Message, Session } from "./types.js";
+import type { AdapterCapabilityFlags, Delivery, HoldReason, Message, NativeEvent, Session } from "./types.js";
 
 /**
  * Pluggable edge for a native host family.
@@ -8,6 +8,31 @@ export type InjectResult =
   | { ok: true; proof: "written" | "submitted"; nativeMessageId?: string }
   | { ok: false; error: string; retryable?: boolean; uncertain?: boolean };
 
+/**
+ * Read-back of one submission whose outcome is unknown.
+ * `present`: the native side holds exactly this compiled query. `absent`: provably not submitted,
+ * safe to retry. `unknown`: cannot tell yet — keep the delivery uncertain.
+ */
+export type VerifyResult =
+  | { status: "present"; nativeMessageId?: string }
+  | { status: "absent" }
+  | { status: "unknown"; error?: string };
+
+/**
+ * Whether the native side can take input right now. `busy` keeps the delivery queued in order;
+ * any other reason holds it until a later check passes.
+ */
+export type Readiness = { ready: true } | { ready: false; reason: HoldReason; detail?: string };
+
+/** A transcript record as the adapter read it, before the bus correlates and stores it. */
+export type NativeObservation = Pick<NativeEvent, "nativeEventId" | "nativeTime" | "kind" | "text">;
+
+export type NativeReadResult = {
+  observations: NativeObservation[];
+  cursor: number;
+  source: string;
+};
+
 export type DiscoveredEndpoint = {
   suggestedSessionKey: string;
   provider: string;
@@ -16,6 +41,12 @@ export type DiscoveredEndpoint = {
   nativeSessionId: string;
   displayName: string;
   capabilities: AdapterCapabilityFlags;
+  /** Adapter that can submit to this endpoint; absent means the file inbox. */
+  adapterId?: string;
+  workdir?: string;
+  updatedAt?: string;
+  /** A live interactive process currently owns the native session. */
+  attached?: boolean;
 };
 
 export interface SessionAdapter {
@@ -24,22 +55,12 @@ export interface SessionAdapter {
 
   discover(): Promise<DiscoveredEndpoint[]>;
 
-  inject?(
-    session: Session,
-    endpoint: Endpoint,
-    message: Message,
-    compiledQuery: string,
-  ): Promise<InjectResult>;
+  readiness?(session: Session): Promise<Readiness>;
 
-  onReady?(
-    session: Session,
-    endpoint: Endpoint,
-    cb: () => void,
-  ): Promise<() => void> | (() => void);
+  inject?(session: Session, message: Message, compiledQuery: string, delivery: Delivery): Promise<InjectResult>;
 
-  tail?(
-    session: Session,
-    endpoint: Endpoint,
-    cb: (event: { nativeEventId: string; text: string; at: string }) => void,
-  ): Promise<() => void> | (() => void);
+  verify?(session: Session, message: Message, compiledContextHash: string): Promise<VerifyResult>;
+
+  /** Read native transcript records after `cursor` (0 = adapter decides how much history to import). */
+  readNative?(session: Session, cursor: number): Promise<NativeReadResult>;
 }

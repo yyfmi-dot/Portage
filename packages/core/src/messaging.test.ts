@@ -10,6 +10,7 @@ const policy: RoomPolicy = {
   maxConcurrent: 2,
   agentMessagesPerMinute: 12,
   maxAutoRounds: 4,
+  maxWakeupsPerTrace: 20,
   maxContextBytes: 32768,
 };
 

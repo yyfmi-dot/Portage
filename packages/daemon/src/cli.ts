@@ -1,15 +1,12 @@
 #!/usr/bin/env node
-import { discoverCliProcesses, processesToEndpoints } from "@portage/adapters";
-import { createRuntime, portageHome, seedDualProviderRoom } from "./runtime.js";
+import { createRuntime, portageHome, seedDemoRoom } from "./runtime.js";
 import { startServer } from "./server.js";
 
 async function main() {
   const [command = "help"] = process.argv.slice(2);
 
   if (command === "discover") {
-    const processes = await discoverCliProcesses();
-    const endpoints = processesToEndpoints(processes);
-    console.log(JSON.stringify({ processes, endpoints }, null, 2));
+    console.log(JSON.stringify(await createRuntime().refreshDiscovery(), null, 2));
     return;
   }
 
@@ -27,16 +24,16 @@ async function main() {
   }
 
   console.log(`Portage daemon
-  portage discover   # list local codex/claude CLI candidates
+  portage discover   # native codex/claude sessions + live CLI processes
   portage demo       # three-member room + file-inbox + sqlite
   portage serve      # HTTP API on 127.0.0.1:8787
 data: ${portageHome()}`);
 }
 
 async function runDemo() {
-  const runtime = createRuntime();
-  await seedDualProviderRoom(runtime);
-  const { bus, persist, paths, adapter } = runtime;
+  const runtime = createRuntime({ hydrate: true });
+  await seedDemoRoom(runtime);
+  const { bus, persist, paths, inbox } = runtime;
 
   const sent = await bus.send({
     conversationId: "room_dev",
@@ -66,7 +63,7 @@ async function runDemo() {
         receipts: await bus.getReceipts(sent.deliveries[0]!.id),
         sqlite: paths.db,
         inbox: paths.inbox,
-        adapter: adapter.id,
+        adapter: inbox.id,
       },
       null,
       2,

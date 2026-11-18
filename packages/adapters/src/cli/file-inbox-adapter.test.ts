@@ -17,19 +17,7 @@ describe("FileInboxAdapter", () => {
     const adapter = new FileInboxAdapter(dir);
     const bus = new MemoryBus({
       inject: async ({ session, message, compiledQuery }) => {
-        const result = await adapter.inject(
-          session,
-          {
-            id: "ep",
-            deviceId: "local",
-            kind: "terminal",
-            host: "terminal",
-            adapterId: adapter.id,
-            capabilities: adapter.capabilities,
-          },
-          message,
-          compiledQuery,
-        );
+        const result = await adapter.inject(session, message, compiledQuery);
         if (!result.ok) return result;
         return { ok: true, nativeMessageId: result.nativeMessageId };
       },
@@ -71,5 +59,15 @@ describe("FileInboxAdapter", () => {
     const body = readFileSync(nativePath!, "utf8");
     expect(body).toContain("deliver via file inbox");
     expect(body).toContain("约束与指导");
+
+    const delivery = bus.deliveries.find((d) => d.id === sent.deliveries[0]!.id)!;
+    const session = bus.sessions.get("s_codex")!;
+    const message = bus.messages.find((m) => m.id === delivery.messageId)!;
+    expect(await adapter.verify(session, message, delivery.compiledContextHash!)).toEqual({
+      status: "present",
+      nativeMessageId: nativePath,
+    });
+    expect(await adapter.verify(session, message, "#deadbeef")).toEqual({ status: "absent" });
+    expect(await adapter.verify({ ...session, nativeIdentity: "pid-never" }, message, "x")).toEqual({ status: "absent" });
   });
 });

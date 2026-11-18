@@ -67,7 +67,7 @@ export function createPortageServer(client: PortageClient) {
       description:
         "Read messages other sessions or the user sent you through Portage, oldest first. Each message includes the room conventions that applied when it was sent. Reading marks them as received by you (the sender sees a read receipt). Returns nothing if nothing is waiting. Call this when you are told you have a Portage message, and between tasks.",
       inputSchema: { limit: z.number().int().min(1).max(50).optional().describe("Maximum messages to read (default 10)") },
-      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async ({ limit }) => {
       try {
@@ -134,7 +134,7 @@ export function createPortageServer(client: PortageClient) {
       inputSchema: {
         state: z.enum(["idle", "running", "waiting_human"]).describe("idle = ready for new messages"),
       },
-      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ state }) => {
       try {

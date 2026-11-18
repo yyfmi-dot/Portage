@@ -78,7 +78,10 @@ describe("daemon HTTP API L4 closed loop", () => {
     expect(leadText).toContain("[全局 PORTAGE.md · v1");
     expect(leadText).toContain("[房间 collaboration.md · v2");
     expect(leadText).toContain("当前统筹者（路由）");
-    expect(snap.contextSnapshots[user.json.deliveries[0].id].query).toBe(leadText);
+    expect(snap.contexts[user.json.deliveries[0].id].hash).toBeTruthy();
+    expect(snap.contexts[user.json.deliveries[0].id].query).toBeUndefined();
+    const context = await fetch(`${base}/api/deliveries/${user.json.deliveries[0].id}/context`).then((r) => r.json() as Promise<Json>);
+    expect(context.query).toBe(leadText);
     const receipt = snap.receipts.find((r: { deliveryId: string }) => r.deliveryId === user.json.deliveries[0].id);
     expect(receipt).toMatchObject({ adapterId: "cli-file-inbox", proofLevel: "submitted" });
 
@@ -129,7 +132,7 @@ describe("daemon HTTP API L4 closed loop", () => {
   it("preview compiles what the recipient will get; artifacts and direct chat reach the inbox", async () => {
     const preview = await post("/api/conversations/room_dev/preview", { text: "预览正文" });
     expect(preview.json.recipientSessionId).toBe("s_lead");
-    expect(preview.json.snapshot.layers).toEqual(["全局 PORTAGE.md", "房间 collaboration.md", "执行策略", "原始消息"]);
+    expect(preview.json.snapshot.layers).toEqual(["全局 PORTAGE.md", "房间 collaboration.md", "执行策略", "原始消息", "回复方式"]);
 
     const artifact = await post("/api/artifacts", {
       name: "review.md",
@@ -145,7 +148,8 @@ describe("daemon HTTP API L4 closed loop", () => {
       idempotencyKey: "l4_art",
     });
     const snap = await snapshot();
-    expect(snap.contextSnapshots[withFile.json.deliveries[0].id].query).toContain("review.md · v1 · 8 bytes");
+    const fileContext = await fetch(`${base}/api/deliveries/${withFile.json.deliveries[0].id}/context`).then((r) => r.json() as Promise<Json>);
+    expect(fileContext.query).toContain("review.md · v1 · 8 bytes");
 
     const dm = await post("/api/sessions/s_reviewer/direct");
     expect(dm.json.kind).toBe("direct");
@@ -206,17 +210,56 @@ describe("daemon HTTP API L4 closed loop", () => {
     expect(buffer).toContain("DeliverySubmitted");
   });
 
+  it("collaboration.md frontmatter is executable policy; an invalid doc is rejected whole", async () => {
+    const markdown = "---\nversion: 1\nwake:\n  max_concurrent: 1\nbudget:\n  max_auto_rounds: 6\n---\n# 约定\n\n完成后附产物引用。";
+    const ok = await post("/api/rooms/room_dev/policy", { markdown });
+    expect(ok.status).toBe(200);
+    expect(ok.json.policy).toMatchObject({ maxConcurrent: 1, maxAutoRounds: 6 });
+
+    const bad = await post("/api/rooms/room_dev/policy", { markdown: "---\nbudget:\n  max_auto_rounds: 0\n---\nx" });
+    expect(bad.status).toBe(400);
+    expect(bad.json.error).toContain("max_auto_rounds");
+    const room = (await snapshot()).conversations.find((c: { id: string }) => c.id === "room_dev");
+    expect(room.policy.maxAutoRounds).toBe(6);
+    expect(room.document.publishedRevision).toBe(ok.json.document.publishedRevision);
+
+    const budget = await post("/api/rooms/room_dev/policy", { maxConcurrent: 2, maxWakeupsPerTrace: 30 });
+    expect(budget.json.policy).toMatchObject({ maxConcurrent: 2, maxWakeupsPerTrace: 30 });
+  });
+
   it("restart hydrates state and continues seq without losing snapshots", async () => {
     const before = await snapshot();
     const lastSeq = Math.max(...before.messages.filter((m: { conversationId: string }) => m.conversationId === "room_dev").map((m: { seq: number }) => m.seq));
     await stop(started!);
-    started = await startServer(8791);
+    // A fresh port: the client must not reuse keep-alive sockets of the stopped server.
+    started = await startServer(8795);
+    base = `http://127.0.0.1:${started.port}`;
     const after = await snapshot();
     expect(after.messages.length).toBe(before.messages.length);
-    expect(Object.keys(after.contextSnapshots).length).toBe(Object.keys(before.contextSnapshots).length);
+    expect(Object.keys(after.contexts).length).toBe(Object.keys(before.contexts).length);
     const next = await post("/api/conversations/room_dev/send", { text: "重启后", idempotencyKey: "l4_restart" });
     expect(next.json.message.seq).toBe(lastSeq + 1);
     const replay = await post("/api/conversations/room_dev/send", { text: "请统筹推进适配器契约", idempotencyKey: "l4_user" });
     expect(replay.json.message.seq).toBe(1);
+  });
+
+  it("the snapshot stays bounded: a recent window per conversation, older history paged on demand", async () => {
+    const room = (await post("/api/rooms", { title: "长历史" })).json;
+    for (let i = 0; i < 80; i += 1) await post(`/api/conversations/${room.id}/send`, { text: `h${i}`, idempotencyKey: `long_${i}` });
+    const snap = await snapshot();
+    const recent = snap.messages.filter((m: Json) => m.conversationId === room.id);
+    expect(recent).toHaveLength(50);
+    expect(recent[0].parts[0].text).toBe("h30");
+    expect(snap.history[room.id]).toEqual({ hasMore: true, fromSeq: recent[0].seq });
+    expect(snap.history.room_dev.hasMore).toBe(false);
+
+    const page = await fetch(`${base}/api/conversations/${room.id}/messages?beforeSeq=${recent[0].seq}&limit=20`).then((r) => r.json() as Promise<Json>);
+    expect(page.messages.map((m: Json) => m.parts[0].text)).toEqual(Array.from({ length: 20 }, (_, i) => `h${i + 10}`));
+    expect(page.hasMore).toBe(true);
+    const first = await fetch(`${base}/api/conversations/${room.id}/messages?beforeSeq=${page.messages[0].seq}&limit=20`).then((r) => r.json() as Promise<Json>);
+    expect(first.messages).toHaveLength(10);
+    expect(first.hasMore).toBe(false);
+    expect((await fetch(`${base}/api/conversations/nope/messages`)).status).toBe(404);
+    expect((await fetch(`${base}/api/deliveries/nope/context`)).status).toBe(404);
   });
 }, 60000);

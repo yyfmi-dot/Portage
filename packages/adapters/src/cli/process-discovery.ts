@@ -9,55 +9,28 @@ export type DiscoveredProcess = {
   name: string;
   provider: "codex" | "claude" | "unknown";
   commandLine?: string;
+  /** Where the CLI runs, inferred from its ancestors (an editor's integrated terminal vs. a plain terminal). */
+  host?: "terminal" | "vscode_cli";
 };
 
+type ProcessRow = { pid: number; ppid: number; name: string; commandLine: string; exiting?: boolean };
+
 /**
- * Discover likely coding-agent CLI processes on Windows via PowerShell.
+ * Discover likely coding-agent CLI processes (Windows via PowerShell, macOS/Linux via ps).
  * Returns candidates; Bus still requires explicit bind/join.
  */
 export async function discoverCliProcesses(): Promise<DiscoveredProcess[]> {
-  if (process.platform !== "win32") return [];
-
-  const script = `
-Get-CimInstance Win32_Process |
-  Where-Object {
-    $cmd = $_.CommandLine
-    $n = $_.Name
-    if (-not $cmd) { return $false }
-    if ($cmd -match '(?i)crashpad-handler|portage.*discover|process-discovery') { return $false }
-    if ($n -match '(?i)^(codex|claude)\\.exe$') { return $true }
-    if ($cmd -match '(?i)[\\\\/](codex|claude)(\\.cmd|\\.exe)?(\\s|$)' -and $n -notmatch '(?i)^ChatGPT\\.exe$') { return $true }
-    return $false
-  } |
-  Select-Object ProcessId, Name, CommandLine |
-  ConvertTo-Json -Compress
-`;
-
-  try {
-    const { stdout } = await execFileAsync(
-      "powershell.exe",
-      ["-NoProfile", "-Command", script],
-      { windowsHide: true, maxBuffer: 1024 * 1024 },
-    );
-    const raw = stdout.trim();
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as
-      | { ProcessId: number; Name: string; CommandLine?: string }
-      | Array<{ ProcessId: number; Name: string; CommandLine?: string }>;
-    const rows = Array.isArray(parsed) ? parsed : [parsed];
-    return rows.map((row) => {
-      const commandLine = row.CommandLine ?? "";
-      const provider = inferProvider(row.Name, commandLine);
-      return {
-        pid: Number(row.ProcessId),
-        name: row.Name,
-        provider,
-        commandLine,
-      };
-    });
-  } catch {
-    return [];
-  }
+  const rows = await processTable();
+  const byPid = new Map(rows.map((row) => [row.pid, row]));
+  return rows
+    .filter((row) => !row.exiting && isAgentCli(row))
+    .map((row) => ({
+      pid: row.pid,
+      name: row.name,
+      provider: inferProvider(row.name, row.commandLine),
+      commandLine: row.commandLine,
+      host: inferHost(row, byPid),
+    }));
 }
 
 /**
@@ -66,46 +39,102 @@ Get-CimInstance Win32_Process |
  * a verifiable native identity, no manual configuration.
  */
 export async function ancestorPids(pid: number = process.pid, limit = 12): Promise<number[]> {
-  if (process.platform !== "win32") return linuxAncestors(pid, limit);
-  const script = `
-$map = @{}
-Get-CimInstance Win32_Process | ForEach-Object { $map[[int]$_.ProcessId] = [int]$_.ParentProcessId }
-$chain = @()
-$cur = ${Math.trunc(pid)}
-while ($cur -and $map.ContainsKey($cur) -and $chain.Count -lt ${limit}) {
-  $chain += $cur
-  $next = $map[$cur]
-  if ($next -eq $cur) { break }
-  $cur = $next
+  const byPid = new Map((await processTable()).map((row) => [row.pid, row]));
+  if (!byPid.has(pid)) return [pid];
+  const chain: number[] = [];
+  let current: number | undefined = pid;
+  while (current && byPid.has(current) && chain.length < limit && !chain.includes(current)) {
+    chain.push(current);
+    current = byPid.get(current)!.ppid;
+  }
+  return chain;
 }
-$chain | ConvertTo-Json -Compress
-`;
+
+/** One consistent snapshot of pid → parent + command line for the whole machine. */
+export async function processTable(): Promise<ProcessRow[]> {
   try {
-    const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-Command", script], {
-      windowsHide: true,
-      maxBuffer: 1024 * 1024,
-    });
-    const parsed = JSON.parse(stdout.trim() || "[]") as number | number[];
-    return (Array.isArray(parsed) ? parsed : [parsed]).map(Number);
+    return process.platform === "win32" ? await windowsTable() : await posixTable();
   } catch {
-    return [pid];
+    return [];
   }
 }
 
-async function linuxAncestors(pid: number, limit: number): Promise<number[]> {
-  const { readFile } = await import("node:fs/promises");
-  const chain: number[] = [];
-  let current = pid;
-  while (current > 1 && chain.length < limit) {
-    chain.push(current);
-    try {
-      const stat = await readFile(`/proc/${current}/stat`, "utf8");
-      current = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
-    } catch {
-      break;
-    }
+async function posixTable(): Promise<ProcessRow[]> {
+  // `comm=` is the executable path on macOS and the short name on Linux; `args=` is the full command line.
+  // `stat=` marks zombies (Z) and processes stuck exiting (E): they hold a pid but are no session.
+  const [names, args] = await Promise.all([
+    execFileAsync("ps", ["-axo", "pid=,ppid=,stat=,comm="], { maxBuffer: 16 * 1024 * 1024 }),
+    execFileAsync("ps", ["-axo", "pid=,args="], { maxBuffer: 16 * 1024 * 1024 }),
+  ]);
+  const commandLines = new Map<number, string>();
+  for (const line of args.stdout.split("\n")) {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (match) commandLines.set(Number(match[1]), match[2]!);
   }
-  return chain;
+  const rows: ProcessRow[] = [];
+  for (const line of names.stdout.split("\n")) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(line);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const comm = match[4]!.trim();
+    rows.push({
+      pid,
+      ppid: Number(match[2]),
+      name: comm.split("/").pop() ?? comm,
+      commandLine: commandLines.get(pid) ?? comm,
+      exiting: /[ZE]/.test(match[3]!),
+    });
+  }
+  return rows;
+}
+
+async function windowsTable(): Promise<ProcessRow[]> {
+  const script = `
+Get-CimInstance Win32_Process |
+  Select-Object ProcessId, ParentProcessId, Name, CommandLine |
+  ConvertTo-Json -Compress
+`;
+  const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-Command", script], {
+    windowsHide: true,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  const raw = stdout.trim();
+  if (!raw) return [];
+  const parsed = JSON.parse(raw) as WindowsRow | WindowsRow[];
+  return (Array.isArray(parsed) ? parsed : [parsed]).map((row) => ({
+    pid: Number(row.ProcessId),
+    ppid: Number(row.ParentProcessId),
+    name: row.Name ?? "",
+    commandLine: row.CommandLine ?? "",
+  }));
+}
+
+type WindowsRow = { ProcessId: number; ParentProcessId: number; Name?: string; CommandLine?: string };
+
+const NOT_A_SESSION =
+  /crashpad|portage-mcp|process-discovery|app-server|code-mode-host|\s(mcp|mcp-server)(\s|$)|--print-config|\s--version(\s|$)|ChatGPT\.(exe|app)|Claude\.app|Codex Framework/i;
+
+/** An interactive coding-agent CLI: the codex/claude executable itself, or a node shim launching it. */
+export function isAgentCli(row: { name: string; commandLine: string }): boolean {
+  if (!row.commandLine || NOT_A_SESSION.test(row.commandLine)) return false;
+  if (/^(codex|claude)(\.exe)?$/i.test(row.name)) return true;
+  if (!/^(node|bun|codex|claude)/i.test(row.name)) return false;
+  const firstArgs = row.commandLine.split(/\s+/).slice(0, 2).join(" ");
+  return (
+    /(^|[\\/])(codex|claude)(\.cmd|\.exe|\.js|\.mjs)?(\s|$)/i.test(firstArgs) ||
+    /[\\/]@(anthropic-ai[\\/]claude-code|openai[\\/]codex)[\\/]/i.test(firstArgs)
+  );
+}
+
+const EDITOR = /Visual Studio Code|Code Helper|\bCode\.exe\b|Cursor( Helper)?|Cursor\.exe|VSCodium|Windsurf/i;
+
+function inferHost(row: ProcessRow, byPid: Map<number, ProcessRow>): DiscoveredProcess["host"] {
+  let current = byPid.get(row.ppid);
+  for (let hops = 0; current && hops < 12; hops += 1) {
+    if (EDITOR.test(current.commandLine) || EDITOR.test(current.name)) return "vscode_cli";
+    current = current.ppid === current.pid ? undefined : byPid.get(current.ppid);
+  }
+  return "terminal";
 }
 
 export function processesToEndpoints(
@@ -117,7 +146,7 @@ export function processesToEndpoints(
       suggestedSessionKey: `${p.provider}:pid:${p.pid}`,
       provider: p.provider,
       harness: "cli",
-      host: "terminal",
+      host: p.host ?? "terminal",
       nativeSessionId: `pid-${p.pid}`,
       displayName: `${p.provider} · pid ${p.pid}`,
       capabilities: {

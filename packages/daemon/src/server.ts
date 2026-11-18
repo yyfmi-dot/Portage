@@ -2,22 +2,19 @@ import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import type { BusEvent, Message } from "@portage/core";
-import {
-  createRuntime,
-  seedDualProviderRoom,
-  snapshotForUi,
-  type DaemonRuntime,
-} from "./runtime.js";
+import { TUNABLE_BUDGETS, policyDocumentBody, type BusEvent, type Message } from "@portage/core";
+import { createRuntime, historyPage, seedDemoRoom, snapshotForUi, type DaemonRuntime, type RuntimeOptions } from "./runtime.js";
 
 const DEFAULT_PORT = 8787;
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
+const TICK_MS = 5000;
 
 type Body = Record<string, any>;
 type Handler = (ctx: {
   runtime: DaemonRuntime;
   params: string[];
   body: Body;
+  url: URL;
   req: IncomingMessage;
   res: ServerResponse;
 }) => Promise<unknown> | unknown;
@@ -48,13 +45,14 @@ route("GET", "/api/discover", async ({ runtime }) => {
 });
 
 // sessions
-route("POST", "/api/sessions", ({ runtime, body }) => {
+route("POST", "/api/sessions", async ({ runtime, body }) => {
   const provider = requireString(body.provider, "provider");
   const nativeIdentity = requireString(body.nativeIdentity, "nativeIdentity");
   const existing = [...runtime.bus.sessions.values()].find(
     (s) => s.provider === provider && s.nativeIdentity === nativeIdentity,
   );
   if (existing) throw new HttpError(409, "session already registered");
+  const adapterId = body.adapterId ? knownAdapter(runtime, String(body.adapterId)) : undefined;
   const id = `s_${provider}_${nativeIdentity.replace(/[^\w-]/g, "")}`.slice(0, 48);
   const alias = uniqueAlias(runtime, String(body.alias ?? nativeIdentity).replace(/[^\w-]/g, "").slice(0, 24) || "session");
   const { session } = runtime.bus.registerSession({
@@ -67,11 +65,44 @@ route("POST", "/api/sessions", ({ runtime, body }) => {
       displayName: String(body.displayName ?? `${provider} · ${nativeIdentity}`),
       alias,
       communicationEnabled: true,
+      adapterId,
+      workdir: body.workdir ? String(body.workdir) : undefined,
     },
     participantId: `p_${id.slice(2)}`,
   });
+  await runtime.syncNative(session.id);
   return session;
 });
+route("POST", "/api/sessions/:id/rebind", ({ runtime, params, body }) =>
+  runtime.bus.rebindSession({
+    sessionId: params[0]!,
+    nativeIdentity: body.nativeIdentity ? String(body.nativeIdentity) : undefined,
+    adapterId: body.adapterId ? knownAdapter(runtime, String(body.adapterId)) : undefined,
+    workdir: body.workdir ? String(body.workdir) : undefined,
+  }),
+);
+route("POST", "/api/sessions/:id/confirm-binding", async ({ runtime, params }) => ({
+  deliveries: await runtime.bus.confirmBinding(params[0]!),
+}));
+route("POST", "/api/sessions/:id/interrupt", ({ runtime, params }) => ({ interrupted: runtime.interrupt(params[0]!) }));
+route("GET", "/api/sessions/:id/native", ({ runtime, params, url }) => ({
+  events: runtime.bus.listNativeEvents(params[0]!, Math.min(Number(url.searchParams.get("limit") ?? 200), 1000)),
+  checkpoint: runtime.bus.nativeCheckpoints.get(params[0]!) ?? null,
+}));
+route("GET", "/api/deliveries/:id/context", ({ runtime, params }) => {
+  const snapshot = runtime.bus.contextSnapshots.get(params[0]!);
+  if (!snapshot) throw new HttpError(404, `no compiled context for delivery ${params[0]}`);
+  return snapshot;
+});
+route("GET", "/api/conversations/:id/messages", ({ runtime, params, url }) => {
+  if (!runtime.bus.conversations.has(params[0]!)) throw new HttpError(404, `conversation not found: ${params[0]}`);
+  const before = Number(url.searchParams.get("beforeSeq") ?? Number.POSITIVE_INFINITY);
+  const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 100), 1), 500);
+  return historyPage(runtime.bus, params[0]!, before, limit);
+});
+route("POST", "/api/deliveries/:id/cancel", ({ runtime, params }) =>
+  runtime.bus.cancelDelivery({ deliveryId: params[0]!, actorId: "user" }),
+);
 route("POST", "/api/sessions/:id", ({ runtime, params, body }) =>
   runtime.bus.updateSession({
     sessionId: params[0]!,
@@ -109,24 +140,17 @@ route("POST", "/api/rooms/:id/pause", async ({ runtime, params, body }) => ({
 }));
 route("POST", "/api/rooms/:id/policy", async ({ runtime, params, body }) => {
   const conversationId = params[0]!;
-  const document =
-    typeof body.markdown === "string" && body.markdown.trim()
-      ? runtime.bus.publishPolicy({
-          scope: "room",
-          id: conversationId,
-          markdown: body.markdown,
-          updatedBy: "user",
-        })
-      : runtime.bus.getPolicyDocument("room", conversationId);
-  const policy =
-    body.maxAutoRounds !== undefined || body.agentMessagesPerMinute !== undefined
-      ? await runtime.bus.updateRoomPolicy({
-          conversationId,
-          maxAutoRounds: optionalInt(body.maxAutoRounds),
-          agentMessagesPerMinute: optionalInt(body.agentMessagesPerMinute),
-        })
-      : await runtime.bus.getRoomPolicy(conversationId);
-  return { document, policy };
+  const budgets = Object.fromEntries(
+    TUNABLE_BUDGETS.filter((key) => body[key] !== undefined).map((key) => [key, optionalInt(body[key])]),
+  );
+  if (Object.keys(budgets).length) await runtime.bus.updateRoomPolicy({ conversationId, ...budgets });
+  if (typeof body.markdown === "string" && body.markdown.trim()) {
+    return runtime.bus.publishRoomPolicy({ conversationId, markdown: body.markdown, updatedBy: "user" });
+  }
+  return {
+    document: runtime.bus.getPolicyDocument("room", conversationId),
+    policy: await runtime.bus.getRoomPolicy(conversationId),
+  };
 });
 route("POST", "/api/rooms/:id/members", ({ runtime, params, body }) =>
   runtime.bus.joinRoom({
@@ -172,7 +196,7 @@ route("POST", "/api/conversations/:id/preview", ({ runtime, params, body }) =>
     artifactIds: Array.isArray(body.artifactIds) ? body.artifactIds.map(String) : [],
   }),
 );
-route("POST", "/api/messages/:id/revise", ({ runtime, params, body }): Message =>
+route("POST", "/api/messages/:id/revise", ({ runtime, params, body }): Promise<Message> =>
   runtime.bus.reviseMessage({
     messageId: params[0]!,
     text: requireString(body.text, "text"),
@@ -253,7 +277,7 @@ route("GET", "/api/agent/:session/room", ({ runtime, params }) => {
         communicationEnabled: m.communicationEnabled,
         isYou: m.id === session.id,
       })),
-      collaboration: runtime.bus.getPolicyDocument("room", room.id)?.markdown ?? "",
+      collaboration: policyDocumentBody(runtime.bus.getPolicyDocument("room", room.id)?.markdown ?? ""),
     };
   });
   return { you: { alias: session.alias, name: session.displayName }, rooms };
@@ -290,9 +314,7 @@ route("POST", "/api/agent/:session/send", async ({ runtime, params, body }) => {
   const me = participantOf(runtime, session.id);
   const text = requireString(body.text, "text");
 
-  const replyTo = body.replyToMessageId
-    ? runtime.bus.messages.find((m) => m.id === String(body.replyToMessageId))
-    : undefined;
+  const replyTo = body.replyToMessageId ? runtime.bus.getMessage(String(body.replyToMessageId)) : undefined;
   if (body.replyToMessageId && !replyTo) throw new HttpError(404, `message not found: ${body.replyToMessageId}`);
 
   const rooms = runtime.bus.activeRoomsForSession(session.id);
@@ -346,14 +368,13 @@ route("POST", "/api/agent/:session/status", async ({ runtime, params, body }) =>
   const execution = String(body.execution ?? "");
   if (!["idle", "running", "waiting_human"].includes(execution))
     throw new HttpError(400, "execution must be idle | running | waiting_human");
-  if (execution === "idle") return { deliveries: await runtime.bus.markSessionReady(session.id), execution };
-  runtime.bus.setSessionExecution(session.id, execution as "running" | "waiting_human");
-  return { deliveries: [], execution };
+  const deliveries = await runtime.bus.reportExecution(session.id, execution as "idle" | "running" | "waiting_human");
+  return { deliveries, execution };
 });
 
-export async function startServer(port = DEFAULT_PORT) {
-  const runtime = createRuntime({ hydrate: true });
-  await seedDualProviderRoom(runtime);
+export async function startServer(port = DEFAULT_PORT, options: Pick<RuntimeOptions, "native"> = {}) {
+  const runtime = createRuntime({ hydrate: true, daemonUrl: `http://127.0.0.1:${port}`, ...options });
+  await seedDemoRoom(runtime);
   runtime.persist();
 
   const server = createServer((req, res) => {
@@ -363,6 +384,22 @@ export async function startServer(port = DEFAULT_PORT) {
   await new Promise<void>((resolve) => {
     server.listen(port, "127.0.0.1", () => resolve());
   });
+
+  // Time-driven recovery (rate windows reopening, unconfirmed submissions) runs outside requests.
+  let ticking = false;
+  const timer = setInterval(async () => {
+    if (ticking) return;
+    ticking = true;
+    try {
+      if (await runtime.tick()) runtime.persist();
+    } catch (error) {
+      console.error("[portage] background tick failed:", error);
+    } finally {
+      ticking = false;
+    }
+  }, TICK_MS);
+  timer.unref();
+  server.on("close", () => clearInterval(timer));
 
   return { server, runtime, port };
 }
@@ -393,7 +430,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, runtime: Daemon
   try {
     const body = method === "POST" ? await readJson(req) : {};
     const params = match.m.slice(1).map(decodeURIComponent);
-    const result = await match.r.handler({ runtime, params, body, req, res });
+    const result = await match.r.handler({ runtime, params, body, url, req, res });
     if (match.r.mutates) runtime.persist();
     return send(res, 200, result ?? { ok: true });
   } catch (error) {
@@ -420,6 +457,12 @@ function streamEvents(req: IncomingMessage, res: ServerResponse, runtime: Daemon
     clearInterval(heartbeat);
     unsubscribe();
   });
+}
+
+function knownAdapter(runtime: DaemonRuntime, adapterId: string) {
+  const known = [runtime.inbox.id, ...runtime.native.map((a) => a.id)];
+  if (!known.includes(adapterId)) throw new HttpError(400, `unknown adapterId ${adapterId}; known: ${known.join(", ")}`);
+  return adapterId;
 }
 
 function uniqueAlias(runtime: DaemonRuntime, base: string) {

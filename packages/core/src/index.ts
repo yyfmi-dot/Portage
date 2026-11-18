@@ -10,7 +10,9 @@ export {
 export { assertCoordinatorInvariant, resolveWakeTargets } from "./wake.js";
 export { acceptMessage } from "./messaging.js";
 export type { SendContext, SendResult } from "./messaging.js";
-export { compileContext, fnv1a } from "./context.js";
+export { compileContext, fnv1a, markedMessageIds } from "./context.js";
 export type { ContextCompileInput, ContextSnapshot } from "./context.js";
-export { MemoryBus } from "./bus/memory-bus.js";
-export type { InjectHook, MemoryBusOptions, SessionRuntime } from "./bus/memory-bus.js";
+export { MemoryBus, TUNABLE_BUDGETS, validateBudgets } from "./bus/memory-bus.js";
+export type { InjectHook, MemoryBusOptions, SessionRuntime, TunableBudget, VerifyHook } from "./bus/memory-bus.js";
+export { PolicyFrontmatterError, parsePolicyDocument, policyDocumentBody } from "./policy-frontmatter.js";
+export type { FrontmatterPolicy, ParsedPolicyDocument } from "./policy-frontmatter.js";

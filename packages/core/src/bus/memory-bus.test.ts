@@ -261,20 +261,57 @@ describe("MemoryBus L2/L3", () => {
     await bus.joinRoom({ conversationId: "room_dev", participantId: "p_builder" });
     const policy = bus.policies.get("room_dev")!;
     policy.maxAutoRounds = 1;
-    bus.roomState.get("room_dev")!.rounds = 1;
+    const agentSend = (key: string, traceId: string) =>
+      bus.send({
+        conversationId: "room_dev",
+        senderId: "p_lead",
+        target: { kind: "room", id: "room_dev" },
+        text: "@builder again",
+        mentionParticipantIds: ["p_builder"],
+        idempotencyKey: key,
+        source: "agent",
+        traceId,
+      });
 
-    const result = await bus.send({
-      conversationId: "room_dev",
-      senderId: "p_lead",
-      target: { kind: "room", id: "room_dev" },
-      text: "@builder again",
-      mentionParticipantIds: ["p_builder"],
-      idempotencyKey: "round-cap-1",
-      source: "agent",
-    });
+    expect((await agentSend("round-cap-0", "trace_a")).deliveries[0]?.state).toBe("submitted");
+    const result = await agentSend("round-cap-1", "trace_a");
     expect(result.deliveries[0]?.state).toBe("held");
     expect(result.deliveries[0]?.reason).toBe("round_budget");
     expect(bus.roomState.get("room_dev")?.rounds).toBe(2);
+
+    // raising the cap releases only deliveries whose own trace is back within budget
+    await bus.updateRoomPolicy({ conversationId: "room_dev", maxAutoRounds: 2 });
+    expect(bus.deliveries.find((d) => d.id === result.deliveries[0]!.id)?.state).toBe("submitted");
+  });
+
+  it("auto rounds are counted per trace and a user message resets only its own trace", async () => {
+    const { bus } = seedBus();
+    await bus.joinRoom({ conversationId: "room_dev", participantId: "p_lead" });
+    await bus.joinRoom({ conversationId: "room_dev", participantId: "p_builder" });
+    bus.policies.get("room_dev")!.maxAutoRounds = 2;
+    const send = (key: string, traceId: string, user = false) =>
+      bus.send({
+        conversationId: "room_dev",
+        senderId: user ? "user" : "p_lead",
+        target: { kind: "room", id: "room_dev" },
+        text: "@builder ping",
+        mentionParticipantIds: ["p_builder"],
+        idempotencyKey: key,
+        source: user ? "user" : "agent",
+        traceId,
+      });
+
+    await send("a1", "trace_a");
+    await send("a2", "trace_a");
+    // a busy parallel discussion must not spend trace_b's budget
+    expect((await send("b1", "trace_b")).deliveries[0]?.state).toBe("submitted");
+    expect((await send("a3", "trace_a")).deliveries[0]?.reason).toBe("round_budget");
+    await send("u-b", "trace_b", true);
+    expect((await send("a4", "trace_a")).deliveries[0]?.reason).toBe("round_budget");
+    expect(bus.roomState.get("room_dev")?.traceRounds).toMatchObject({ trace_a: 4, trace_b: 0 });
+
+    await send("u-a", "trace_a", true);
+    expect((await send("a5", "trace_a")).deliveries[0]?.state).toBe("submitted");
   });
 
   it("agent messages per minute budget holds with reason budget, raising budget releases", async () => {
@@ -412,14 +449,12 @@ describe("MemoryBus L2/L3", () => {
       idempotencyKey: "rev-1",
       source: "user",
     });
-    const revised = bus.reviseMessage({ messageId: sent.message.id, text: "final", actorId: "user" });
+    const revised = await bus.reviseMessage({ messageId: sent.message.id, text: "final", actorId: "user" });
     expect(revised.revision).toBe(2);
     await bus.markSessionReady("s_lead");
     expect(bus.contextSnapshots.get(sent.deliveries[0]!.id)?.query).toContain("final");
     expect(bus.deliveries.find((d) => d.id === sent.deliveries[0]!.id)?.messageRevision).toBe(2);
-    expect(() =>
-      bus.reviseMessage({ messageId: sent.message.id, text: "x", actorId: "p_lead" }),
-    ).toThrow();
+    await expect(bus.reviseMessage({ messageId: sent.message.id, text: "x", actorId: "p_lead" })).rejects.toThrow();
   });
 
   it("direct conversation wakes only the target session without room policy layer", async () => {
@@ -451,6 +486,7 @@ describe("MemoryBus L2/L3", () => {
       "房间 collaboration.md",
       "执行策略",
       "原始消息",
+      "回复方式",
     ]);
     expect(preview.snapshot.query).toContain("当前统筹者（路由）");
   });
@@ -583,4 +619,212 @@ describe("MemoryBus L2/L3", () => {
     });
     expect(result.deliveries[0]?.state).toBe("uncertain");
   });
+
+  it("an adapter that throws mid-submit leaves the delivery uncertain instead of stuck dispatching", async () => {
+    const bus = soloRoomBus({
+      inject: async () => {
+        throw new Error("EIO");
+      },
+    });
+    const result = await sendToSolo(bus, "throw-1");
+    expect(result.deliveries[0]?.state).toBe("uncertain");
+  });
+
+  it("read-back confirms a submission that landed and safely retries one that did not", async () => {
+    let landed = true;
+    let calls = 0;
+    const bus = soloRoomBus({
+      inject: async () => {
+        calls += 1;
+        return calls === 1 ? { ok: false, uncertain: true, error: "timeout" } : { ok: true, nativeMessageId: "inbox/2.txt" };
+      },
+      verify: async () => (landed ? { status: "present", nativeMessageId: "inbox/1.txt" } : { status: "absent" }),
+    });
+
+    const first = await sendToSolo(bus, "rb-1");
+    expect(first.deliveries[0]?.state).toBe("uncertain");
+    expect(await bus.tick()).toBe(true);
+    const confirmed = bus.deliveries.find((d) => d.id === first.deliveries[0]!.id)!;
+    expect(confirmed.state).toBe("submitted");
+    expect(bus.receipts.find((r) => r.deliveryId === confirmed.id)?.nativeMessageId).toBe("inbox/1.txt");
+    expect(calls).toBe(1);
+
+    calls = 0;
+    landed = false;
+    const second = await sendToSolo(bus, "rb-2");
+    expect(second.deliveries[0]?.state).toBe("uncertain");
+    await bus.tick();
+    expect(bus.deliveries.find((d) => d.id === second.deliveries[0]!.id)?.state).toBe("submitted");
+    expect(calls).toBe(2);
+  });
+
+  it("read-back that cannot tell keeps the delivery uncertain", async () => {
+    const bus = soloRoomBus({
+      inject: async () => ({ ok: false, uncertain: true, error: "timeout" }),
+      verify: async () => ({ status: "unknown" }),
+    });
+    const result = await sendToSolo(bus, "unk-1");
+    expect(await bus.tick()).toBe(false);
+    expect(bus.deliveries.find((d) => d.id === result.deliveries[0]!.id)?.state).toBe("uncertain");
+  });
+
+  it("a delivery interrupted while dispatching restores as uncertain", async () => {
+    const bus = soloRoomBus({ inject: async () => ({ ok: false, uncertain: true, error: "x" }) });
+    const result = await sendToSolo(bus, "crash-1");
+    const delivery = bus.deliveries.find((d) => d.id === result.deliveries[0]!.id)!;
+    delivery.state = "dispatching";
+    bus.restoreIndexes();
+    expect(delivery.state).toBe("uncertain");
+  });
+
+  it("automatic wakeups wait for a free seat and take it when a running member finishes", async () => {
+    const { bus } = seedBus();
+    for (const p of ["p_lead", "p_builder", "p_reviewer"]) {
+      await bus.joinRoom({ conversationId: "room_dev", participantId: p });
+    }
+    await bus.updateRoomPolicy({ conversationId: "room_dev", maxConcurrent: 1, maxAutoRounds: 10 });
+    bus.setSessionExecution("s_builder", "running");
+
+    const agent = await bus.send({
+      conversationId: "room_dev",
+      senderId: "p_lead",
+      target: { kind: "room", id: "room_dev" },
+      text: "@reviewer 请看一下",
+      mentionParticipantIds: ["p_reviewer"],
+      idempotencyKey: "seat-1",
+      source: "agent",
+    });
+    expect(agent.deliveries[0]).toMatchObject({ state: "queued", reason: "seats" });
+
+    // the user is never throttled by automatic seats
+    const user = await bus.send({
+      conversationId: "room_dev",
+      senderId: "user",
+      target: { kind: "participant", id: "p_reviewer" },
+      text: "直接问你",
+      idempotencyKey: "seat-user",
+      source: "user",
+    });
+    expect(user.deliveries[0]?.state).toBe("submitted");
+
+    await bus.reportExecution("s_builder", "waiting_human");
+    expect(bus.deliveries.find((d) => d.id === agent.deliveries[0]!.id)?.state).toBe("submitted");
+  });
+
+  it("one trace cannot wake agents more than maxWakeupsPerTrace times", async () => {
+    const { bus } = seedBus();
+    for (const p of ["p_lead", "p_builder", "p_reviewer"]) {
+      await bus.joinRoom({ conversationId: "room_dev", participantId: p });
+    }
+    await bus.updateRoomPolicy({
+      conversationId: "room_dev",
+      maxWakeupsPerTrace: 3,
+      maxAutoRounds: 50,
+      agentMessagesPerMinute: 100,
+    });
+    const send = (key: string) =>
+      bus.send({
+        conversationId: "room_dev",
+        senderId: "p_lead",
+        target: { kind: "room", id: "room_dev" },
+        text: "@builder @reviewer 继续",
+        mentionParticipantIds: ["p_builder", "p_reviewer"],
+        idempotencyKey: key,
+        source: "agent",
+        traceId: "trace_storm",
+      });
+    expect((await send("w1")).deliveries.map((d) => d.state)).toEqual(["submitted", "submitted"]);
+    const second = await send("w2");
+    expect(second.deliveries.map((d) => d.state)).toEqual(["submitted", "held"]);
+    expect(second.deliveries[1]?.reason).toBe("wakeup_budget");
+    expect((await send("w3")).deliveries.every((d) => d.reason === "wakeup_budget")).toBe(true);
+  });
+
+  it("rate-limited deliveries carry nextAttemptAt and are released by tick once the window reopens", async () => {
+    let clock = Date.parse("2026-01-01T00:00:00.000Z");
+    const bus = new MemoryBus({ now: () => new Date(clock).toISOString() });
+    const seeded = seedInto(bus);
+    await seeded.joinAll();
+    await bus.updateRoomPolicy({ conversationId: "room_dev", agentMessagesPerMinute: 1, maxAutoRounds: 10 });
+    const send = (key: string) =>
+      bus.send({
+        conversationId: "room_dev",
+        senderId: "p_lead",
+        target: { kind: "room", id: "room_dev" },
+        text: "@builder",
+        mentionParticipantIds: ["p_builder"],
+        idempotencyKey: key,
+        source: "agent",
+      });
+    await send("tick-1");
+    clock += 10_000;
+    const held = (await send("tick-2")).deliveries[0]!;
+    expect(held).toMatchObject({ state: "held", reason: "budget", nextAttemptAt: "2026-01-01T00:01:00.000Z" });
+
+    clock += 20_000;
+    expect(await bus.tick()).toBe(false);
+    clock += 31_000;
+    expect(await bus.tick()).toBe(true);
+    const after = bus.deliveries.find((d) => d.id === held.id)!;
+    expect(after.state).toBe("submitted");
+    expect(after.nextAttemptAt).toBeUndefined();
+  });
 });
+
+function soloRoomBus(options: ConstructorParameters<typeof MemoryBus>[0]) {
+  const bus = new MemoryBus(options);
+  bus.registerSession({
+    session: {
+      id: "s1",
+      provider: "codex",
+      harness: "cli",
+      host: "terminal",
+      nativeIdentity: "n1",
+      displayName: "S1",
+      alias: "s1",
+      communicationEnabled: true,
+    },
+    participantId: "p1",
+  });
+  bus.createRoom({ id: "r1", title: "R", createdBy: "user", wakeMode: "coordinator", coordinatorParticipantId: "p1" });
+  return bus;
+}
+
+async function sendToSolo(bus: MemoryBus, key: string) {
+  if (!bus.memberships.some((m) => m.conversationId === "r1")) {
+    await bus.joinRoom({ conversationId: "r1", participantId: "p1" });
+  }
+  return bus.send({
+    conversationId: "r1",
+    senderId: "user",
+    target: { kind: "room", id: "r1" },
+    text: key,
+    idempotencyKey: key,
+    source: "user",
+  });
+}
+
+function seedInto(bus: MemoryBus) {
+  for (const [alias, provider] of [["lead", "codex"], ["builder", "claude"]] as const) {
+    bus.registerSession({
+      session: {
+        id: `s_${alias}`,
+        provider,
+        harness: "cli",
+        host: "terminal",
+        nativeIdentity: `native-${alias}`,
+        displayName: alias,
+        alias,
+        communicationEnabled: true,
+      },
+      participantId: `p_${alias}`,
+    });
+  }
+  bus.createRoom({ id: "room_dev", title: "R", createdBy: "user", wakeMode: "coordinator", coordinatorParticipantId: "p_lead" });
+  return {
+    joinAll: async () => {
+      await bus.joinRoom({ conversationId: "room_dev", participantId: "p_lead" });
+      await bus.joinRoom({ conversationId: "room_dev", participantId: "p_builder" });
+    },
+  };
+}

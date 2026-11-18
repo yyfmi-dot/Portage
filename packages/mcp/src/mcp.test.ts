@@ -78,6 +78,11 @@ describe("MCP bridge over stdio (real MCP client â†’ real portage-mcp process â†
       "portage_status",
     ]);
     for (const tool of tools) expect((tool.description ?? "").length).toBeGreaterThan(80);
+    // Headless turns run with approval "never": a tool not declared read-only or non-destructive is refused.
+    for (const tool of tools) {
+      const a = tool.annotations ?? {};
+      expect(a.readOnlyHint === true || a.destructiveHint === false, tool.name).toBe(true);
+    }
     expect(client.getInstructions()).toContain("portage_inbox");
     expect(tools.find((t) => t.name === "portage_send")!.inputSchema.required).toEqual(["text"]);
   });

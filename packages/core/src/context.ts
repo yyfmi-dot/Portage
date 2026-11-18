@@ -1,3 +1,4 @@
+import { policyDocumentBody } from "./policy-frontmatter.js";
 import type { Artifact, Message, PolicyDocument, RoomPolicy } from "./types.js";
 
 export type ContextCompileInput = {
@@ -5,11 +6,14 @@ export type ContextCompileInput = {
   workspace?: PolicyDocument | null;
   room?: PolicyDocument | null;
   /** Execution policy summary for rooms (wake + budget), never a persona. */
-  policy?: Pick<RoomPolicy, "wakeMode" | "maxAutoRounds" | "agentMessagesPerMinute"> | null;
+  policy?: Pick<RoomPolicy, "wakeMode" | "maxAutoRounds" | "agentMessagesPerMinute"> &
+    Partial<Pick<RoomPolicy, "maxWakeupsPerTrace">> | null;
   message: Message;
   artifacts?: Artifact[];
   recipientLabel: string;
   sourceLabel?: string;
+  /** Room messages are answered through Portage; a direct chat is answered natively. */
+  replyThroughPortage?: boolean;
   maxContextBytes: number;
 };
 
@@ -23,22 +27,27 @@ export type ContextSnapshot = {
   };
   hash: string;
   byteSize: number;
-  truncated: boolean;
+  /** Layers left out to fit `maxContextBytes`, outermost first. */
+  dropped: string[];
+  /** Even the message alone exceeds `maxContextBytes`: it is not delivered rather than cut. */
+  overflow: boolean;
   layers: string[];
 };
+
+type Layer = { label: string; text: string; droppable: boolean };
+
+/** Outer layers are dropped first when the query does not fit; the message itself never is. */
+const DROP_ORDER = ["全局 PORTAGE.md", "工作区", "执行策略", "房间 collaboration.md"];
 
 /**
  * Compile short collaboration constraints + original message.
  * Does not invent a new persona — layers are labeled as room conventions.
  */
 export function compileContext(input: ContextCompileInput): ContextSnapshot {
-  const layers: string[] = [];
-  const parts: string[] = [];
-
+  const layers: Layer[] = [];
   const pushDoc = (label: string, doc?: PolicyDocument | null) => {
-    if (!doc?.markdown?.trim()) return;
-    layers.push(label);
-    parts.push(`[${label} · v${doc.publishedRevision} · 约束与指导，不改写原生身份]\n${doc.markdown.trim()}`);
+    const text = doc ? policyDocumentBody(doc.markdown) : "";
+    if (doc && text) layers.push({ label, droppable: true, text: `[${label} · v${doc.publishedRevision} · 约束与指导，不改写原生身份]\n${text}` });
   };
 
   pushDoc("全局 PORTAGE.md", input.global);
@@ -46,10 +55,19 @@ export function compileContext(input: ContextCompileInput): ContextSnapshot {
   pushDoc("房间 collaboration.md", input.room);
 
   if (input.policy) {
-    layers.push("执行策略");
-    parts.push(
-      `[执行策略]\nwake.mode: ${input.policy.wakeMode}\nbudget.max_auto_rounds: ${input.policy.maxAutoRounds}\nbudget.agent_messages_per_minute: ${input.policy.agentMessagesPerMinute}`,
-    );
+    layers.push({
+      label: "执行策略",
+      droppable: true,
+      text: [
+        "[执行策略]",
+        `wake.mode: ${input.policy.wakeMode}`,
+        `budget.max_auto_rounds: ${input.policy.maxAutoRounds}`,
+        `budget.agent_messages_per_minute: ${input.policy.agentMessagesPerMinute}`,
+        input.policy.maxWakeupsPerTrace ? `budget.max_wakeups_per_trace: ${input.policy.maxWakeupsPerTrace}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    });
   }
 
   const textPart = input.message.parts.find((p) => p.kind === "text" || p.kind === "markdown");
@@ -60,53 +78,67 @@ export function compileContext(input: ContextCompileInput): ContextSnapshot {
   ]
     .filter(Boolean)
     .join("\n\n");
-  layers.push("原始消息");
-  parts.push(
-    `${header}\n\n[原始消息 · v${input.message.revision} · ${input.message.id}]\n${body}`,
-  );
+  layers.push({
+    label: "原始消息",
+    droppable: false,
+    text: `${header}\n\n${messageMarker(input.message)}\n${body}`,
+  });
 
   if (input.artifacts?.length) {
-    layers.push("产物引用");
-    parts.push(
-      `[产物引用]\n${input.artifacts
+    layers.push({
+      label: "产物引用",
+      droppable: false,
+      text: `[产物引用]\n${input.artifacts
         .map((a) => `${a.originalName} · v${a.version} · ${a.byteSize} bytes · ${a.storageKey}`)
         .join("\n")}`,
-    );
+    });
   }
 
-  let query = parts.join("\n\n");
-  let truncated = false;
-  const encoder = new TextEncoder();
-  if (encoder.encode(query).length > input.maxContextBytes) {
-    truncated = true;
-    // Keep room constraints + message; drop global/workspace first
-    const lean: string[] = [];
-    if (input.room?.markdown?.trim()) {
-      lean.push(
-        `[房间 collaboration.md · v${input.room.publishedRevision} · 约束与指导]\n${input.room.markdown.trim()}`,
-      );
-    }
-    lean.push(`[接收方]\n${input.recipientLabel}\n\n[原始消息 · v${input.message.revision}]\n${body}`);
-    query = lean.join("\n\n");
-    while (encoder.encode(query).length > input.maxContextBytes && query.length > 64) {
-      query = query.slice(0, Math.floor(query.length * 0.85));
-      truncated = true;
-    }
+  if (input.replyThroughPortage) {
+    layers.push({
+      label: "回复方式",
+      droppable: false,
+      text: `[回复方式]\n用 portage_send 回复（replyToMessageId=${input.message.id}），需要别人处理时在正文 @别名；不需要回复时可以不发。\n发出后即可结束本回合：别人的回复会由 Portage 作为新消息送达你，不必在回合内等待或轮询收件箱。`,
+    });
   }
+
+  const encoder = new TextEncoder();
+  const size = (kept: Layer[]) => encoder.encode(kept.map((l) => l.text).join("\n\n")).length;
+  let kept = layers;
+  const dropped: string[] = [];
+  for (const label of DROP_ORDER) {
+    if (size(kept) <= input.maxContextBytes) break;
+    if (!kept.some((l) => l.label === label && l.droppable)) continue;
+    kept = kept.filter((l) => l.label !== label);
+    dropped.push(label);
+  }
+  const query = kept.map((l) => l.text).join("\n\n");
+  const byteSize = encoder.encode(query).length;
 
   return {
     query,
     revisions: {
-      global: input.global?.publishedRevision,
-      workspace: input.workspace?.publishedRevision,
-      room: input.room?.publishedRevision,
+      global: kept.some((l) => l.label === "全局 PORTAGE.md") ? input.global?.publishedRevision : undefined,
+      workspace: kept.some((l) => l.label === "工作区") ? input.workspace?.publishedRevision : undefined,
+      room: kept.some((l) => l.label === "房间 collaboration.md") ? input.room?.publishedRevision : undefined,
       message: input.message.revision,
     },
     hash: fnv1a(query),
-    byteSize: encoder.encode(query).length,
-    truncated,
-    layers,
+    byteSize,
+    dropped,
+    overflow: byteSize > input.maxContextBytes,
+    layers: kept.map((l) => l.label),
   };
+}
+
+/** The line that names the Portage message inside compiled input; native transcripts carry it verbatim. */
+function messageMarker(message: Pick<Message, "id" | "revision">) {
+  return `[原始消息 · v${message.revision} · ${message.id}]`;
+}
+
+/** Portage message ids named by markers in text read back from a native transcript. */
+export function markedMessageIds(text: string): string[] {
+  return [...text.matchAll(/\[原始消息 · v\d+ · ([^\]\s]+)\]/g)].map((m) => m[1]!);
 }
 
 export function fnv1a(text: string): string {

@@ -1,12 +1,19 @@
 import { mkdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   FileInboxAdapter,
+  NativeTurnAdapter,
+  claudeCli,
+  claudeDialect,
+  codexCli,
+  codexDialect,
   discoverCliProcesses,
   processesToEndpoints,
+  type TurnEnd,
 } from "@portage/adapters";
-import type { DiscoveredEndpoint, Message, Session } from "@portage/core";
+import type { ContextSnapshot, Delivery, DiscoveredEndpoint, Message, Readiness, Session, SessionAdapter } from "@portage/core";
 import { MemoryBus } from "@portage/core";
 import { SqliteSnapshotStore } from "@portage/core/node";
 
@@ -17,10 +24,26 @@ export function portageHome() {
 
 export type DaemonRuntime = {
   bus: MemoryBus;
-  adapter: FileInboxAdapter;
+  inbox: FileInboxAdapter;
+  native: NativeTurnAdapter[];
+  store: SqliteSnapshotStore;
   persist: () => void;
+  /** Time-driven work: uncertain read-back, reopened rate windows, adapter holds, native transcript sync. */
+  tick: () => Promise<boolean>;
+  /** Read new native transcript records of one session into the bus. */
+  syncNative: (sessionId: string) => Promise<void>;
+  /** Stop a running Portage turn on a native session. */
+  interrupt: (sessionId: string) => boolean;
   refreshDiscovery: () => Promise<DiscoveredEndpoint[]>;
   paths: { home: string; db: string; inbox: string; artifacts: string };
+};
+
+export type RuntimeOptions = {
+  hydrate?: boolean;
+  /** Daemon URL agents' MCP servers talk back to. */
+  daemonUrl?: string;
+  /** Test seam: the native adapters to use instead of the real Codex / Claude CLIs. */
+  native?: (onTurnEnd: (end: TurnEnd) => void) => NativeTurnAdapter[];
 };
 
 const DEFAULT_GLOBAL_POLICY = `# PORTAGE.md
@@ -29,7 +52,7 @@ const DEFAULT_GLOBAL_POLICY = `# PORTAGE.md
 - 需要他人处理时明确 @ 对方，并说明期望产出。
 - 回复附上来源与产物引用；结果不确定时如实标注。`;
 
-export function createRuntime(options: { hydrate?: boolean } = {}): DaemonRuntime {
+export function createRuntime(options: RuntimeOptions = {}): DaemonRuntime {
   const home = portageHome();
   const paths = {
     home,
@@ -39,151 +62,193 @@ export function createRuntime(options: { hydrate?: boolean } = {}): DaemonRuntim
   };
   for (const dir of [paths.home, paths.inbox, paths.artifacts]) mkdirSync(dir, { recursive: true });
 
-  const adapter = new FileInboxAdapter(paths.inbox);
-  const inject = async ({
-    session,
-    message,
-    compiledQuery,
-  }: {
-    session: Session;
-    message: Message;
-    compiledQuery: string;
-  }) => {
-    const result = await adapter.inject(
-      session,
-      {
-        id: "local-file",
-        deviceId: "local",
-        kind: "terminal",
-        host: "terminal",
+  const mcp = {
+    command: process.execPath,
+    args: [createRequire(import.meta.url).resolve("@portage/mcp/launcher"), "--daemon", options.daemonUrl ?? "http://127.0.0.1:8787"],
+  };
+  // Turn ends arrive outside any request; `runtime` is assigned below before the first turn can end.
+  let runtime: DaemonRuntime;
+  const onTurnEnd = (end: TurnEnd) => void finishTurn(runtime, end);
+  const native =
+    options.native?.(onTurnEnd) ?? [
+      new NativeTurnAdapter({ id: "codex-native", dialect: codexDialect(), cli: codexCli, mcp, onTurnEnd }),
+      new NativeTurnAdapter({ id: "claude-native", dialect: claudeDialect(), cli: claudeCli, mcp, onTurnEnd }),
+    ];
+  const inbox = new FileInboxAdapter(paths.inbox);
+  const adapters = new Map<string, SessionAdapter>([[inbox.id, inbox], ...native.map((a) => [a.id, a] as const)]);
+  const adapterFor = (session: Session): SessionAdapter => adapters.get(session.adapterId ?? inbox.id) ?? inbox;
+
+  const store = new SqliteSnapshotStore(paths.db);
+  const fresh = new MemoryBus({
+    inject: async ({ session, message, delivery, compiledQuery }) => {
+      const adapter = adapterFor(session);
+      const result = await adapter.inject!(session, message, compiledQuery, delivery);
+      if (!result.ok) return result;
+      return {
+        ok: true as const,
+        nativeMessageId: result.nativeMessageId,
         adapterId: adapter.id,
-        capabilities: adapter.capabilities,
-      },
-      message,
-      compiledQuery,
-    );
-    if (!result.ok) return result;
-    return {
-      ok: true as const,
-      nativeMessageId: result.nativeMessageId,
-      adapterId: adapter.id,
-      proof: result.proof,
-    };
+        proof: result.proof,
+        running: adapter instanceof NativeTurnAdapter,
+      };
+    },
+    verify: async ({ session, message, delivery }: { session: Session; message: Message; delivery: Delivery }) =>
+      adapterFor(session).verify?.(session, message, delivery.compiledContextHash ?? "") ?? { status: "unknown" as const },
+    readiness: async (session): Promise<Readiness> => (await adapterFor(session).readiness?.(session)) ?? { ready: true },
+  });
+  const bus = options.hydrate ? store.load(fresh) : fresh;
+  const persist = () => store.save(bus);
+
+  const nativeSessions = () =>
+    [...bus.sessions.values()].filter((s) => !s.archivedAt && adapterFor(s) instanceof NativeTurnAdapter);
+
+  const syncNative = async (sessionId: string) => {
+    const session = bus.sessions.get(sessionId);
+    if (!session) return;
+    const adapter = adapterFor(session);
+    if (!adapter.readNative) return;
+    const cursor = bus.nativeCheckpoints.get(sessionId)?.cursor ?? 0;
+    try {
+      bus.recordNativeRead(sessionId, adapter.id, await adapter.readNative(session, cursor));
+    } catch (error) {
+      bus.recordNativeReadError(sessionId, session.nativeIdentity, error instanceof Error ? error.message : String(error));
+    }
   };
 
-  let bus = new MemoryBus({ inject });
-  if (options.hydrate) {
-    try {
-      const store = new SqliteSnapshotStore(paths.db);
-      bus = store.load(new MemoryBus({ inject }));
-      store.close();
-    } catch {
-      bus = new MemoryBus({ inject });
+  const tick = async () => {
+    let changed = await bus.tick();
+    for (const session of nativeSessions()) {
+      const before = bus.nativeCheckpoints.get(session.id)?.cursor;
+      await syncNative(session.id);
+      if (bus.nativeCheckpoints.get(session.id)?.cursor !== before) changed = true;
+    }
+    return changed;
+  };
+
+  const refreshDiscovery = async () => {
+    const [processes, ...sessions] = await Promise.all([
+      discoverCliProcesses().then(processesToEndpoints),
+      ...native.map((a) => a.discover()),
+    ]);
+    return [...sessions.flat(), ...processes];
+  };
+
+  const interrupt = (sessionId: string) => native.some((a) => a.interrupt(sessionId));
+
+  runtime = { bus, inbox, native, store, persist, tick, syncNative, interrupt, refreshDiscovery, paths };
+
+  // A turn that was running when the daemon stopped is not ours anymore; readiness sees whoever holds it.
+  for (const session of nativeSessions()) {
+    if (bus.runtime.get(session.id)?.execution === "running")
+      bus.setSessionExecution(session.id, "idle", "Portage 重启，之前的回合不再由它跟踪");
+  }
+  return runtime;
+}
+
+/** A native turn ended: read what it wrote, then free the session so its inbox continues in order. */
+async function finishTurn(runtime: DaemonRuntime, end: TurnEnd) {
+  try {
+    await runtime.syncNative(end.sessionId);
+    await runtime.bus.reportExecution(end.sessionId, "idle", end.ok ? undefined : `原生回合失败：${end.error}`);
+    runtime.persist();
+  } catch (error) {
+    console.error("[portage] finishing a native turn failed:", error);
+  }
+}
+
+/**
+ * Seed the demo room: three demo identities over the file inbox, clearly not real sessions.
+ * Real sessions join through discovery + registration.
+ */
+export async function seedDemoRoom(runtime: DaemonRuntime) {
+  const { bus } = runtime;
+  if (!bus.getPolicyDocument("global", "PORTAGE")) {
+    bus.publishPolicy({ scope: "global", id: "PORTAGE", markdown: DEFAULT_GLOBAL_POLICY, updatedBy: "system" });
+  }
+  if (bus.conversations.has("room_dev")) return;
+
+  const demo = (id: string, provider: string, host: string, name: string, alias: string) =>
+    bus.registerSession({
+      session: {
+        id: `s_${alias}`,
+        provider,
+        harness: "cli",
+        host,
+        nativeIdentity: id,
+        displayName: name,
+        alias,
+        communicationEnabled: true,
+      },
+      participantId: `p_${alias}`,
+    });
+  demo("demo-codex-lead", "codex", "terminal", "统筹会话", "lead");
+  demo("demo-claude-builder", "claude", "vscode_cli", "适配器实现", "builder");
+  demo("demo-claude-reviewer", "claude", "terminal", "代码审查", "reviewer");
+  bus.setSessionExecution("s_builder", "running");
+
+  bus.createRoom({
+    id: "room_dev",
+    title: "Portage 开发室",
+    createdBy: "user",
+    wakeMode: "coordinator",
+    coordinatorParticipantId: "p_lead",
+  });
+  for (const alias of ["lead", "builder", "reviewer"]) await bus.joinRoom({ conversationId: "room_dev", participantId: `p_${alias}` });
+}
+
+/** Messages per conversation the UI starts with; older ones are paged in on demand. */
+export const UI_HISTORY_WINDOW = 50;
+
+/** Context metadata without the compiled text; the full snapshot is fetched per delivery when opened. */
+type ContextMeta = Omit<ContextSnapshot, "query">;
+
+/** Messages plus their deliveries, receipts and context metadata — what the UI needs to show them. */
+function withDeliveries(bus: MemoryBus, messages: Message[], extra: Delivery[] = []) {
+  const deliveries = new Map<string, Delivery>();
+  for (const message of messages) for (const d of bus.deliveriesForMessage(message.id)) deliveries.set(d.id, d);
+  for (const d of extra) deliveries.set(d.id, d);
+  const contexts: Record<string, ContextMeta> = {};
+  for (const id of deliveries.keys()) {
+    const snapshot = bus.contextSnapshots.get(id);
+    if (snapshot) {
+      const { query: _query, ...meta } = snapshot;
+      contexts[id] = meta;
     }
   }
-
-  const persist = () => {
-    const store = new SqliteSnapshotStore(paths.db);
-    store.save(bus);
-    store.close();
+  return {
+    messages,
+    deliveries: [...deliveries.values()],
+    receipts: [...deliveries.keys()].flatMap((id) => bus.receiptsForDelivery(id)),
+    contexts,
   };
-
-  const refreshDiscovery = async () => processesToEndpoints(await discoverCliProcesses());
-
-  return { bus, adapter, persist, refreshDiscovery, paths };
 }
 
-/** Seed / repair a three-member room with codex + claude sources (real discovery preferred). */
-export async function seedDualProviderRoom(runtime: DaemonRuntime) {
-  const { bus, adapter, refreshDiscovery } = runtime;
-  const endpoints = await refreshDiscovery();
-  const codex =
-    endpoints.find((e) => e.provider === "codex") ??
-    fallbackEndpoint("codex", "demo-codex", adapter.capabilities);
-  const claude =
-    endpoints.find((e) => e.provider === "claude") ??
-    fallbackEndpoint("claude", "demo-claude", adapter.capabilities);
-
-  if (!bus.getPolicyDocument("global", "PORTAGE")) {
-    bus.publishPolicy({
-      scope: "global",
-      id: "PORTAGE",
-      markdown: DEFAULT_GLOBAL_POLICY,
-      updatedBy: "system",
-    });
-  }
-
-  if (!bus.conversations.has("room_dev")) {
-    bus.registerSession({
-      session: {
-        id: "s_lead",
-        provider: codex.provider,
-        harness: "cli",
-        host: "terminal",
-        nativeIdentity: codex.nativeSessionId,
-        displayName: "统筹会话",
-        alias: "lead",
-        communicationEnabled: true,
-      },
-      participantId: "p_lead",
-    });
-    bus.registerSession({
-      session: {
-        id: "s_builder",
-        provider: claude.provider,
-        harness: "cli",
-        host: "vscode_cli",
-        nativeIdentity: `${claude.nativeSessionId}-builder`,
-        displayName: "适配器实现",
-        alias: "builder",
-        communicationEnabled: true,
-      },
-      participantId: "p_builder",
-      runtime: { execution: "running" },
-    });
-    bus.registerSession({
-      session: {
-        id: "s_reviewer",
-        provider: claude.provider,
-        harness: "cli",
-        host: "terminal",
-        nativeIdentity: `${claude.nativeSessionId}-reviewer`,
-        displayName: "代码审查",
-        alias: "reviewer",
-        communicationEnabled: true,
-      },
-      participantId: "p_reviewer",
-    });
-
-    bus.createRoom({
-      id: "room_dev",
-      title: "Portage 开发室",
-      createdBy: "user",
-      wakeMode: "coordinator",
-      coordinatorParticipantId: "p_lead",
-    });
-    await bus.joinRoom({ conversationId: "room_dev", participantId: "p_lead" });
-    await bus.joinRoom({ conversationId: "room_dev", participantId: "p_builder" });
-    await bus.joinRoom({ conversationId: "room_dev", participantId: "p_reviewer" });
-    return;
-  }
-
-  // Hydrated workspace: rebind pid-scoped identities whose process is gone to a live endpoint.
-  const live = new Set(endpoints.map((e) => e.nativeSessionId));
-  for (const session of bus.sessions.values()) {
-    if (!session.nativeIdentity.startsWith("pid-") || live.has(session.nativeIdentity)) continue;
-    const replacement = endpoints.find(
-      (e) =>
-        e.provider === session.provider &&
-        ![...bus.sessions.values()].some((s) => s.nativeIdentity === e.nativeSessionId),
-    );
-    if (replacement) session.nativeIdentity = replacement.nativeSessionId;
-  }
+/** One page of a conversation's older history. */
+export function historyPage(bus: MemoryBus, conversationId: string, beforeSeq: number, limit: number) {
+  const page = bus.messagePage(conversationId, limit, beforeSeq);
+  return { ...withDeliveries(bus, page.messages), hasMore: page.hasMore };
 }
 
-/** Full workspace projection for the UI. Context snapshots carry the exact compiled query. */
-export function snapshotForUi(bus: MemoryBus) {
+/**
+ * The UI's starting view, bounded regardless of history: the recent window of every conversation,
+ * every delivery still in flight (and its message), and the recent events.
+ */
+export function snapshotForUi(bus: MemoryBus, window = UI_HISTORY_WINDOW) {
   const conversations = [...bus.conversations.values()];
+  const messages = new Map<string, Message>();
+  /** `fromSeq`: where the window starts, so a client holding older pages can tell when a burst left a gap. */
+  const history: Record<string, { hasMore: boolean; fromSeq?: number }> = {};
+  for (const c of conversations) {
+    const page = bus.messagePage(c.id, window);
+    for (const m of page.messages) messages.set(m.id, m);
+    history[c.id] = { hasMore: page.hasMore, fromSeq: page.messages[0]?.seq };
+  }
+  const inFlight = bus.deliveries.filter((d) => !["submitted", "failed", "cancelled"].includes(d.state));
+  for (const d of inFlight) {
+    const message = bus.getMessage(d.messageId);
+    if (message) messages.set(message.id, message);
+  }
+  const ordered = [...messages.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.seq - b.seq);
   return {
     workspaceId: bus.workspaceId,
     conversations: conversations.map((c) => ({
@@ -196,29 +261,12 @@ export function snapshotForUi(bus: MemoryBus) {
     sessions: [...bus.sessions.values()],
     participants: [...bus.participants.values()],
     memberships: bus.memberships,
-    messages: bus.messages,
-    deliveries: bus.deliveries,
-    receipts: bus.receipts,
+    ...withDeliveries(bus, ordered, inFlight),
+    history,
     runtimes: Object.fromEntries(bus.runtime),
-    contextSnapshots: Object.fromEntries(bus.contextSnapshots),
     artifacts: [...bus.artifacts.values()],
+    nativeCheckpoints: Object.fromEntries(bus.nativeCheckpoints),
     events: bus.events.slice(-400),
     lastEventSeq: bus.events.at(-1)?.seq ?? 0,
-  };
-}
-
-function fallbackEndpoint(
-  provider: string,
-  nativeSessionId: string,
-  capabilities: DiscoveredEndpoint["capabilities"],
-): DiscoveredEndpoint {
-  return {
-    suggestedSessionKey: `${provider}:demo`,
-    provider,
-    harness: "cli",
-    host: "terminal",
-    nativeSessionId,
-    displayName: `${provider} demo`,
-    capabilities,
   };
 }

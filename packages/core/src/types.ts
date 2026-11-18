@@ -26,11 +26,15 @@ export type HoldReason =
   | "room_paused"
   | "budget"
   | "round_budget"
+  | "wakeup_budget"
+  | "seats"
   | "offline"
   | "readonly"
   | "left_room"
   | "permission_changed"
   | "identity_changed"
+  | "attached"
+  | "context_too_large"
   | string;
 
 export type Session = {
@@ -44,15 +48,12 @@ export type Session = {
   alias: string;
   communicationEnabled: boolean;
   archivedAt?: string;
-};
-
-export type Endpoint = {
-  id: string;
-  deviceId: string;
-  kind: HostKind;
-  host: string;
-  adapterId: string;
-  capabilities: AdapterCapabilityFlags;
+  /** Adapter that submits input to this session; absent means the file inbox. */
+  adapterId?: string;
+  /** Working directory the native session belongs to (where its turns run). */
+  workdir?: string;
+  /** Binding generation: bumped when the session is re-bound to another native identity or adapter. */
+  bindingEpoch?: number;
 };
 
 export type AdapterCapabilityFlags = {
@@ -62,16 +63,6 @@ export type AdapterCapabilityFlags = {
   idleSignal: boolean;
   tail: boolean;
   createSession: boolean;
-};
-
-export type NativeBinding = {
-  id: string;
-  sessionId: string;
-  endpointId: string;
-  nativeSessionId: string;
-  epoch: number;
-  state: "live" | "rebind" | "retired";
-  activeForDelivery: boolean;
 };
 
 export type Participant = {
@@ -109,6 +100,8 @@ export type RoomPolicy = {
   maxConcurrent: number;
   agentMessagesPerMinute: number;
   maxAutoRounds: number;
+  /** Agent-initiated deliveries allowed on one trace before further wake-ups wait for the user. */
+  maxWakeupsPerTrace: number;
   maxContextBytes: number;
 };
 
@@ -146,6 +139,8 @@ export type Delivery = {
   bindingEpoch?: number;
   state: DeliveryState;
   reason?: HoldReason;
+  /** What the adapter said about a hold (e.g. which process has the session open). */
+  detail?: string;
   attemptCount: number;
   nextAttemptAt?: string;
   dispatchPolicyRevision: string;
@@ -159,6 +154,33 @@ export type DeliveryReceipt = {
   bindingEpoch: number;
   nativeMessageId?: string;
   observedAt: string;
+};
+
+/**
+ * A record read back from the native session's own transcript. Portage never rewrites it;
+ * correlation says how sure we are which Portage message it belongs to.
+ */
+export type NativeEvent = {
+  id: string;
+  sessionId: string;
+  adapterId: string;
+  nativeEventId: string;
+  nativeTime: string;
+  ingestedAt: string;
+  kind: "input" | "output" | "turn_started" | "turn_completed" | "turn_failed";
+  text: string;
+  correlatedMessageId?: string;
+  correlatedDeliveryId?: string;
+  correlation: "exact" | "inferred" | "unknown";
+};
+
+/** How far the native transcript of a session has been read. */
+export type NativeSyncCheckpoint = {
+  sessionId: string;
+  source: string;
+  cursor: number;
+  lastSuccessAt?: string;
+  error?: string;
 };
 
 export type PolicyDocument = {
@@ -192,6 +214,8 @@ export type BusEventType =
   | "SessionUpdated"
   | "SessionCommunicationChanged"
   | "SessionExecutionChanged"
+  | "SessionBindingChanged"
+  | "NativeEventObserved"
   | "RoomCreated"
   | "RoomPolicyChanged"
   | "RoomPaused"

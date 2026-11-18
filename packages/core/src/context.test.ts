@@ -43,21 +43,40 @@ describe("compileContext", () => {
     expect(snap.query).toContain("不改写原生身份");
     expect(snap.query).toContain("请审查适配器");
     expect(snap.revisions.room).toBe(3);
-    expect(snap.truncated).toBe(false);
+    expect(snap.dropped).toEqual([]);
+    expect(snap.overflow).toBe(false);
   });
 
-  it("truncates when over maxContextBytes", () => {
-    const huge: PolicyDocument = {
-      ...room,
-      markdown: "约定 ".repeat(5000),
-    };
+  it("drops outer layers first to fit, and never cuts the message", () => {
+    const global: PolicyDocument = { ...room, id: "PORTAGE", scope: "global", markdown: "全局 ".repeat(3000), publishedRevision: 1 };
     const snap = compileContext({
-      room: huge,
+      global,
+      room,
       message,
       recipientLabel: "Builder",
-      maxContextBytes: 200,
+      maxContextBytes: 600,
     });
-    expect(snap.truncated).toBe(true);
-    expect(snap.byteSize).toBeLessThanOrEqual(200);
+    expect(snap.dropped).toEqual(["全局 PORTAGE.md"]);
+    expect(snap.layers).toContain("房间 collaboration.md");
+    expect(snap.revisions.global).toBeUndefined();
+    expect(snap.query).toContain("请审查适配器");
+    expect(snap.overflow).toBe(false);
+    expect(snap.byteSize).toBeLessThanOrEqual(600);
+  });
+
+  it("flags overflow when the message alone does not fit instead of cutting it", () => {
+    const long = { ...message, parts: [{ kind: "text" as const, text: "长".repeat(400) }] };
+    const snap = compileContext({ room, message: long, recipientLabel: "Builder", maxContextBytes: 300 });
+    expect(snap.overflow).toBe(true);
+    expect(snap.dropped).toEqual(["房间 collaboration.md"]);
+    expect(snap.query).toContain("长".repeat(400));
+  });
+
+  it("tells room recipients how to answer through Portage, quoting the message id", () => {
+    const snap = compileContext({ message, recipientLabel: "Builder", replyThroughPortage: true, maxContextBytes: 32768 });
+    expect(snap.layers.at(-1)).toBe("回复方式");
+    expect(snap.query).toContain("replyToMessageId=m1");
+    const direct = compileContext({ message, recipientLabel: "Builder", maxContextBytes: 32768 });
+    expect(direct.layers).not.toContain("回复方式");
   });
 });
