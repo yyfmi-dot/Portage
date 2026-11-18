@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# local runtime data (Portage keeps these under ~/.portage, never in the repo)
+.portage/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# secrets / local config
+.env
+.env.*
+!.env.example
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
+npm-debug.log*

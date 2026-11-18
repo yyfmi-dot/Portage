@@ -1,0 +1,25 @@
+{
+  "name": "@portage/daemon",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "portage": "./src/cli.ts"
+  },
+  "scripts": {
+    "start": "tsx ./src/cli.ts",
+    "demo": "tsx ./src/cli.ts demo",
+    "serve": "tsx ./src/cli.ts serve",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@portage/adapters": "1.0.0",
+    "@portage/core": "1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

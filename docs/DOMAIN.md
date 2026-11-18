@@ -1,6 +1,6 @@
-﻿# Portage 领域模型 v0.2
+﻿# Portage 领域模型 v1.0
 
-与 ARCHITECTURE.md 共同定义 v0.2 实现目标；本次交付为设计文档与模拟原型，领域服务与持久存储待实现。
+与 ARCHITECTURE.md 共同定义 v1.0 冻结模型；已实现：Session/Participant/Conversation/Membership/RoomPolicy/Message/Delivery/Receipt/PolicyDocument/ContextSnapshot/Artifact/Event 及 SQLite 快照持久化；NativeBinding 多入口、Thread、Subscription、NativeEvent 待实现。
 
 ## 身份、来源与连接
 
@@ -21,12 +21,12 @@
 | 对象 | 主要字段 |
 | --- | --- |
 | Conversation | id、workspaceId、kind direct / room、title、createdBy、policyDocumentId |
-| Membership | conversationId、participantId、permissions、historyScope、joinedAt、leftAt? |
-| RoleAssignment | conversationId、participantId、roleName、instructionDocumentId、revision |
+| Membership | conversationId、participantId、permissions、historyScope、joinedAt、leftAt?；`leftAt` 非空表示已退出活动成员 |
+| RoomPolicy | wake.mode = coordinator \| swarm \| mentions \| manual；coordinatorParticipantId?（统筹模式必填且唯一）；budget 含 max_auto_rounds、rounds 计数 |
 | Subscription | conversationId、participantId、threadFilter、readCursor、notificationCursor、wakeMode |
 | Thread | id、conversationId、rootMessageId?、title、createdAt、archivedAt? |
 
-Room 与 Team 在 UI 中表达同一通信空间。角色按房间赋予，同一 session 在不同房间可以拥有不同职责。Thread 组织一个主题的讨论、订阅与引用。
+Room 与 Team 在 UI 中表达同一通信空间。**不设 RoleAssignment / 房间工种。** 成员保留原生 session 身份；统筹者只是 RoomPolicy 上的路由字段。Thread 组织一个主题的讨论、订阅与引用。collaboration.md 提供约束与指导，不定义模型 persona。
 
 ## 消息与内容
 
@@ -120,7 +120,7 @@ ContextSnapshot 保存各文档 revision、接收方、消息版本、编译 has
 | Execution | idle、running、waiting_human、unknown | 宿主 ready / busy / waiting |
 | Attention | dormant、notified、active、throttled | 唤醒和预算 |
 | Communication | enabled、disabled | 已授权配置 |
-| Inbox | queuedCount、heldCount、oldestAge | 持久 Delivery |
+| Inbox | queuedCount、heldCount、oldestAge | 按 Session 持久的 Delivery 有序队列；会排队，busy/预算时 held |
 | Sync | current、catching_up、gap、read_only | 同步游标和能力 |
 
 每个状态保存 source、updatedAt 和 freshness，过期信号显示 unknown 或陈旧标识。进度文本保留上报者。
@@ -133,6 +133,6 @@ Event 保存 workspaceId、conversationId?、seq、eventType、entityId、actorI
 
 Trace 根据显式 causation 建立链路，允许多个上游输入。推断关系单独标注。回复关系同时服务于 thread。
 
-SQLite 包含身份、会话、端点、绑定、房间、成员、角色、订阅、thread、消息和修订、Delivery 和 Attempt、Receipt、原生事件、同步游标、策略和版本、ContextSnapshot、Artifact、Event、Outbox 等表。
+SQLite 包含身份、会话、端点、绑定、房间、成员、订阅、thread、消息和修订、Delivery 和 Attempt、Receipt、原生事件、同步游标、策略和版本、ContextSnapshot、Artifact、Event、Outbox 等表。房间策略中的 coordinatorParticipantId 存在 Conversation/Policy 记录上，不单开工种角色表。
 
 索引覆盖 conversation + seq、session + delivery state + nextAttemptAt、traceId、原生事件去重键、幂等键和 binding epoch。状态与对应事件在同事务中更新。

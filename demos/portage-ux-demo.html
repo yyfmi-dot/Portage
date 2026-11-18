@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
-    <title>Portage · 会话与协作空间</title>
+    <title>Portage v1.0 · 会话与协作空间</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
@@ -1345,18 +1345,19 @@ h1 {
 }
 .flow-view {
   flex: 1;
-  min-height: 360px;
+  min-height: 420px;
   display: flex;
   flex-direction: column;
-  background: #252e30;
+  background: #1f2729;
 }
 .flow-toolbar {
-  padding: 18px 23px;
+  padding: 14px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
   color: #cdd6cb;
+  border-bottom: 1px solid #2f3a3c;
 }
 .flow-toolbar > div {
   display: flex;
@@ -1364,16 +1365,17 @@ h1 {
   align-items: center;
 }
 .flow-toolbar b {
-  font-size: 10px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 .flow-toolbar .muted {
-  font-size: 8px;
+  font-size: 9px;
   color: #71847a;
 }
 .flow-toolbar select {
   color: #abbcb0;
-  max-width: 110px;
+  max-width: 130px;
   background: #303d3b;
   border-radius: 3px;
   padding: 5px;
@@ -1383,13 +1385,142 @@ h1 {
   color: #84998a;
   font-size: 9px;
 }
+.flow-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.3fr) minmax(200px, 0.85fr);
+  gap: 0;
+}
+.flow-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid #2f3a3c;
+}
+.flow-pane:last-child {
+  border-right: 0;
+}
+.flow-pane-head {
+  padding: 10px 14px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7f9186;
+  border-bottom: 1px solid #2c3739;
+}
+.flow-pane-head strong {
+  color: #c5d2c6;
+  font-weight: 600;
+  margin-right: 6px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 11px;
+}
+.flow-timeline {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 0;
+}
+.flow-event {
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  color: #b8c4b7;
+  border-left: 2px solid transparent;
+}
+.flow-event:hover,
+.flow-event.selected {
+  background: #2a3537;
+  border-left-color: #d9a074;
+}
+.flow-event time {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: #6f8277;
+}
+.flow-event b {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: #e2ebe0;
+  margin-bottom: 3px;
+}
+.flow-event small {
+  display: block;
+  font-size: 9px;
+  color: #809287;
+  line-height: 1.45;
+}
+.flow-event .chip {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 8px;
+  background: #354440;
+  color: #9db5a4;
+}
+.flow-event .chip.wait {
+  background: #3d3428;
+  color: #d2b189;
+}
 .graph-stage {
   position: relative;
   flex: 1;
-  min-height: 300px;
+  min-height: 280px;
   background-image: radial-gradient(#91a78d1c 0.6px, transparent 0.6px);
   background-size: 21px 21px;
   overflow: hidden;
+}
+.delivery-board {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 12px 16px;
+}
+.board-stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.board-stat {
+  background: #2a3436;
+  border-radius: 6px;
+  padding: 10px 8px;
+  text-align: center;
+}
+.board-stat b {
+  display: block;
+  font-size: 16px;
+  color: #e7efe4;
+  font-family: var(--mono);
+}
+.board-stat span {
+  font-size: 8px;
+  color: #7f9186;
+}
+.board-item {
+  padding: 10px 0;
+  border-top: 1px solid #2f3a3c;
+}
+.board-item b {
+  display: block;
+  font-size: 11px;
+  color: #d7e1d4;
+  margin-bottom: 4px;
+}
+.board-item small {
+  font-size: 9px;
+  color: #809287;
+  line-height: 1.4;
+}
+.leave-button {
+  color: #b87a6a !important;
+  background: #f3e7e2 !important;
 }
 #flowCanvas {
   position: absolute;
@@ -1645,6 +1776,16 @@ h1 {
   }
   .activity-list {
     max-height: 145px;
+  }
+}
+@media (max-width: 1180px) {
+  .flow-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(160px, 28vh) minmax(220px, 40vh) minmax(140px, 26vh);
+  }
+  .flow-pane {
+    border-right: 0;
+    border-bottom: 1px solid #2f3a3c;
   }
 }
 @media (max-width: 1250px) {
@@ -1908,11 +2049,11 @@ h1 {
                 </div>
                 <div class="view-controls">
                   <label class="wake-control"
-                    >唤醒<select id="wakeMode" aria-label="唤醒模式">
-                      <option value="coordinator">统筹者优先</option>
-                      <option value="mentions">仅 @ 提及</option>
-                      <option value="all">所有成员</option>
-                      <option value="manual">手动唤醒</option>
+                    >模式<select id="wakeMode" aria-label="房间协作模式">
+                      <option value="coordinator">统筹</option>
+                      <option value="swarm">Swarm</option>
+                      <option value="mentions">仅 @</option>
+                      <option value="manual">手动</option>
                     </select></label
                   ><button id="pauseRoom" class="text-button">Ⅱ 暂停通信</button>
                 </div>
@@ -1953,23 +2094,36 @@ h1 {
               <section id="flowView" class="flow-view" aria-label="信息流监控" hidden>
                 <div class="flow-toolbar">
                   <div>
-                    <span class="live-dot"></span><b>消息传递链路</b
+                    <span class="live-dot"></span><b>信息流</b
                     ><span id="flowCount" class="muted"></span>
                   </div>
                   <div>
                     <select id="traceFilter" aria-label="链路筛选">
-                      <option value="all">全部链路</option></select
+                      <option value="all">全部 Trace</option></select
                     ><button id="pauseAnimation" class="text-button">暂停动画</button>
                   </div>
                 </div>
-                <div class="graph-stage">
-                  <canvas
-                    id="flowCanvas"
-                    aria-label="信息流图，详细消息可从下方事件列表读取"
-                  ></canvas>
-                  <div id="graphNodes" class="graph-nodes"></div>
-                  <div class="graph-legend">
-                    实线 · 显式消息关系<span>点击节点或事件查看详情</span>
+                <div class="flow-layout">
+                  <div class="flow-pane">
+                    <div class="flow-pane-head"><strong>时间线</strong>结构化事件</div>
+                    <div id="flowTimeline" class="flow-timeline" aria-label="信息流时间线"></div>
+                  </div>
+                  <div class="flow-pane">
+                    <div class="flow-pane-head"><strong>Trace</strong>因果与在途投递</div>
+                    <div class="graph-stage">
+                      <canvas
+                        id="flowCanvas"
+                        aria-label="信息流图，详细消息可从时间线读取"
+                      ></canvas>
+                      <div id="graphNodes" class="graph-nodes"></div>
+                      <div class="graph-legend">
+                        实线 · 显式关系<span>粒子 · 在途 Delivery</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="flow-pane">
+                    <div class="flow-pane-head"><strong>投递板</strong>按接收方队列</div>
+                    <div id="deliveryBoard" class="delivery-board" aria-label="投递状态板"></div>
                   </div>
                 </div>
               </section>
@@ -1998,8 +2152,8 @@ h1 {
               <div id="attachmentPreview" class="attachment-preview" hidden></div>
               <div class="composer-bottom">
                 <button type="button" id="attachFile" class="text-button">＋ 附件</button
-                ><input type="file" id="fileInput" hidden /><span id="composerHint"
-                  >房间成员可读，统筹者首先被唤醒</span
+                ><input type="file" id="fileInput" hidden /                ><span id="composerHint"
+                  >房间成员可读 · 模式决定谁被唤醒</span
                 ><button type="submit" id="sendButton" class="button send-button">
                   发送 <span>↗</span>
                 </button>
@@ -2113,6 +2267,7 @@ const reasonLabels = {
   budget: '达到房间通信预算',
   ready: '等待提交',
   readonly: '当前入口为只读连接',
+  left_room: '已退出房间 · 停止自动投递',
 };
 let state;
 let toastTimer;
@@ -2153,8 +2308,10 @@ function room(id = state.roomId) {
   return state.rooms.find((item) => item.id === id);
 }
 
-function roleFor(item, roomId = state.roomId) {
-  return room(roomId).roles?.[item.id] || item.role;
+function memberBadge(item, roomId = state.roomId) {
+  const current = room(roomId);
+  if (current.mode === 'coordinator' && current.coordinator === item.id) return '统筹';
+  return '';
 }
 
 function senderName(id) {
@@ -2211,9 +2368,8 @@ function reset() {
         id: 'c1',
         provider: 'Codex',
         host: 'Terminal',
-        name: '统筹 · session 1',
+        name: 'session 1 · lead',
         alias: 'lead',
-        role: '统筹',
         execution: 'idle',
         enabled: true,
         writable: true,
@@ -2226,7 +2382,6 @@ function reset() {
         host: 'VS Code CLI',
         name: '适配器实现',
         alias: 'builder',
-        role: '实现',
         execution: 'running',
         enabled: true,
         writable: true,
@@ -2239,7 +2394,6 @@ function reset() {
         host: 'App',
         name: '产品讨论',
         alias: 'product',
-        role: '产品',
         execution: 'idle',
         enabled: true,
         writable: false,
@@ -2252,7 +2406,6 @@ function reset() {
         host: 'Terminal',
         name: '代码审查',
         alias: 'reviewer',
-        role: '审查',
         execution: 'dormant',
         enabled: true,
         writable: true,
@@ -2265,7 +2418,6 @@ function reset() {
         host: 'VS Code CLI',
         name: '界面评审',
         alias: 'designer',
-        role: '设计',
         execution: 'dormant',
         enabled: true,
         writable: true,
@@ -2278,7 +2430,6 @@ function reset() {
         host: 'App',
         name: '资料会话',
         alias: 'research',
-        role: '资料',
         execution: 'offline',
         enabled: false,
         writable: false,
@@ -2300,14 +2451,14 @@ function reset() {
         rounds: 2,
         autoMessages: 3,
         document:
-          '# Portage 开发室\n\n统筹者先接收用户消息，明确目标后联系实现与审查成员。\n\n- 有具体请求时 @ 对方，常规进度写入状态。\n- 完成后附上结果、文件来源和版本。\n- 连续讨论达到预算后等待用户恢复。',
+          '# Portage 开发室\n\n通信约定（约束与指导，不改写各 session 原有身份与正在干的活）。\n\n- 统筹模式：用户消息先到统筹者，再由其联系需要协助的成员。\n- 需要他人处理时明确 @ 对方；完成后附结果与产物引用。\n- 连续讨论达到预算后等待用户恢复。',
       },
       {
         id: 'design',
         name: '设计讨论',
         members: ['c3', 'h2'],
-        mode: 'mentions',
-        coordinator: 'h2',
+        mode: 'swarm',
+        coordinator: null,
         paused: false,
         revision: 1,
         roundBudget: 3,
@@ -2488,7 +2639,8 @@ function renderOffice() {
       const status = statusFor(item);
       const count = queueFor(id).length;
       const selected = state.inspector?.kind === 'session' && state.inspector.id === id;
-      return `<button class="workstation ${status} ${selected ? 'selected' : ''}" data-inspect-session="${id}" style="left:${position[0]}%;top:${position[1]}%;--agent-color:${item.color}" aria-label="${escapeHtml(item.name)}，${roleFor(item)}，${stateLabels[status]}${count ? `，${count} 条排队` : ''}"><span class="station-label"><b>${escapeHtml(item.name)}<span class="station-role">${escapeHtml(roleFor(item))}</span></b><small>${item.provider} / ${item.host}</small></span><span class="desk"></span><span class="monitor"><i class="screen-lines"></i></span><span class="agent-figure"><i class="agent-head"></i><i class="agent-body"></i></span>${status === 'dormant' ? '<span class="sleep-symbol">z z</span>' : ''}<span class="station-state"><span class="state-pill">${stateLabels[status]}</span>${count ? `<span class="queue-tag">＋${count} 等待</span>` : ''}</span></button>`;
+      const badge = memberBadge(item);
+      return `<button class="workstation ${status} ${selected ? 'selected' : ''}" data-inspect-session="${id}" style="left:${position[0]}%;top:${position[1]}%;--agent-color:${item.color}" aria-label="${escapeHtml(item.name)}${badge ? `，${badge}` : ''}，${stateLabels[status]}${count ? `，${count} 条排队` : ''}"><span class="station-label"><b>${escapeHtml(item.name)}${badge ? `<span class="station-role">${escapeHtml(badge)}</span>` : ''}</b><small>${item.provider} / ${item.host}</small></span><span class="desk"></span><span class="monitor"><i class="screen-lines"></i></span><span class="agent-figure"><i class="agent-head"></i><i class="agent-body"></i></span>${status === 'dormant' ? '<span class="sleep-symbol">z z</span>' : ''}<span class="station-state"><span class="state-pill">${stateLabels[status]}</span>${count ? `<span class="queue-tag">＋${count} 等待</span>` : ''}</span></button>`;
     })
     .join('');
   const members = current.members.map(session);
@@ -2501,7 +2653,7 @@ function renderOffice() {
     ? '自动通信已暂停 · 历史继续记录'
     : `${current.members.length} 位成员 · ${active} 位工作中`;
   $('roomSummary').innerHTML =
-    `<span><b>${active}</b>工作中</span><span><b>${dormant}</b>未唤醒</span><span><b>${queued}</b>等待投递</span><span><b>${current.rounds}/${current.roundBudget}</b>自动轮次</span>`;
+    `<span><b>${active}</b>工作中</span><span><b>${dormant}</b>未唤醒</span><span><b>${queued}</b>收件箱排队</span><span title="已用自动轮次 / 上限"><b>${current.rounds}/${current.roundBudget}</b>自动轮次</span><span><b>${modeLabel(current.mode)}</b></span>`;
   $('roomDropZone').hidden = current.members.length >= 6;
 }
 
@@ -2544,10 +2696,11 @@ function renderChat() {
 
 function modeLabel(mode) {
   return {
-    mentions: '仅唤醒被 @ 的成员',
-    coordinator: '统筹者首先被唤醒',
-    all: '所有可用成员被唤醒',
-    manual: '手动唤醒成员',
+    mentions: '仅 @',
+    coordinator: '统筹 · 派发连线',
+    swarm: 'Swarm · 无固定连线',
+    all: '全体唤醒',
+    manual: '手动唤醒',
   }[mode];
 }
 
@@ -2618,11 +2771,12 @@ function roomInspector() {
   return `<div class="inspector-heading"><h2>房间概览</h2><span>LIVE / DEMO</span></div><div class="inspector-title">当前主题</div><p class="inspector-caption">房间成员可读，实际唤醒遵循当前模式。</p><section class="inspector-section"><h3>房间成员 <span class="muted">${current.members.length}</span></h3>${current.members
     .map((id) => {
       const item = session(id);
-      return `<button class="inspector-member" data-inspect-session="${id}"><span class="avatar ${item.provider === 'Claude' ? 'claude' : ''}">${item.provider[0]}</span><span class="member-info"><b>${escapeHtml(item.name)}</b><small>${escapeHtml(roleFor(item))} · ${item.host}</small></span><span class="member-state">${stateLabels[statusFor(item)]}</span></button>`;
+      const badge = memberBadge(item);
+      return `<button class="inspector-member" data-inspect-session="${id}"><span class="avatar ${item.provider === 'Claude' ? 'claude' : ''}">${item.provider[0]}</span><span class="member-info"><b>${escapeHtml(item.name)}</b><small>${badge ? `${escapeHtml(badge)} · ` : ''}${item.host}</small></span><span class="member-state">${stateLabels[statusFor(item)]}</span></button>`;
     })
     .join(
       '',
-    )}</section><section class="inspector-section"><h3>通信预算</h3><div class="detail-row"><span>自动讨论轮次</span><strong>${current.rounds} / ${current.roundBudget}</strong></div><div class="budget-bar"><i style="width:${progress}%"></i></div><div class="detail-row"><span>近 1 分钟 agent 消息</span><strong>${current.autoMessages} / ${current.messageBudget}</strong></div><div class="detail-row"><span>唤醒方式</span><strong>${modeLabel(current.mode)}</strong></div></section><section class="inspector-section"><div class="policy-card"><span>collaboration.md <b>v${current.revision}</b></span><p>角色、可见范围与沟通约定。权限与预算由投递层执行。</p><button data-open-rules="room">编辑规则 ↗</button></div></section><section class="inspector-section"><h3>共享产物</h3>${state.artifacts
+    )}</section><section class="inspector-section"><h3>通信预算</h3><div class="detail-row"><span>自动讨论轮次</span><strong>${current.rounds} / ${current.roundBudget}</strong></div><div class="budget-bar"><i style="width:${progress}%"></i></div><div class="detail-row"><span>近 1 分钟 agent 消息</span><strong>${current.autoMessages} / ${current.messageBudget}</strong></div><div class="detail-row"><span>房间模式</span><strong>${modeLabel(current.mode)}</strong></div></section><section class="inspector-section"><div class="policy-card"><span>collaboration.md <b>v${current.revision}</b></span><p>约束与指导：通信约定、可见范围与预算。不改写各 session 原有身份。</p><button data-open-rules="room">编辑规则 ↗</button></div></section><section class="inspector-section"><h3>共享产物</h3>${state.artifacts
     .filter((item) => item.roomId === current.id)
     .map(artifactMarkup)
     .join('')}</section>`;
@@ -2631,7 +2785,9 @@ function roomInspector() {
 function sessionInspector(item) {
   const pending = queueFor(item.id);
   const current = room();
-  return `<div class="inspector-heading"><h2>会话详情</h2><span>SESSION</span></div><span class="avatar ${item.provider === 'Claude' ? 'claude' : ''}">${item.provider[0]}</span><div class="inspector-title">${escapeHtml(item.name)}</div><div class="inspector-caption">${item.provider} / ${item.host}<br><span class="mono">demo-native-${item.id} · epoch 1</span></div><section class="inspector-section"><div class="detail-row"><span>信息传递</span><button class="toggle" role="switch" aria-label="${escapeHtml(item.name)}信息传递" aria-checked="${item.enabled}" data-toggle-session="${item.id}"></button></div><div class="detail-row"><span>原生执行</span><strong>${stateLabels[item.execution]}</strong></div><div class="detail-row"><span>输入能力</span><strong>${item.writable ? '模拟可写' : '模拟只读'}</strong></div><div class="detail-row"><span>规则版本</span><strong>已注入 v${item.applied} / 已发布 v${current.revision}</strong></div><div class="detail-row"><span>房间角色</span><select data-role-session="${item.id}" aria-label="成员角色">${['统筹', '实现', '审查', '设计', '产品', '资料'].map((role) => `<option ${role === roleFor(item) ? 'selected' : ''}>${role}</option>`).join('')}</select></div></section><section class="inspector-section"><h3>收件箱 · ${pending.length} 等待</h3>${pending.length ? pending.map((delivery) => `<div class="delivery-item"><b>${escapeHtml(state.messages.find((message) => message.id === delivery.messageId)?.text.slice(0, 45) || '消息')}</b><small>${reasonLabels[delivery.reason] || '等待投递'}</small></div>`).join('') : '<p class="inspector-caption">当前收件箱为空。</p>'}<button class="wide-button" data-ready-session="${item.id}">模拟原生就绪</button><button class="wide-button" data-wake-session="${item.id}">唤醒一次</button></section><section class="inspector-section"><h3>会话管理</h3><button class="wide-button" data-direct-session="${item.id}">与这个 session 对话</button><button class="wide-button" data-rename-session="${item.id}">重命名本地显示</button><button class="wide-button" data-archive-session="${item.id}">归档本地关联</button><p class="inspector-caption">这里演示本地元数据操作。实际创建与原生记录管理依适配器能力开放。</p></section>`;
+  const inRoom = current.members.includes(item.id);
+  const isCoordinator = current.mode === 'coordinator' && current.coordinator === item.id;
+  return `<div class="inspector-heading"><h2>会话详情</h2><span>SESSION</span></div><span class="avatar ${item.provider === 'Claude' ? 'claude' : ''}">${item.provider[0]}</span><div class="inspector-title">${escapeHtml(item.name)}</div><div class="inspector-caption">${item.provider} / ${item.host}<br><span class="mono">demo-native-${item.id} · epoch 1</span></div><section class="inspector-section"><div class="detail-row"><span>信息传递</span><button class="toggle" role="switch" aria-label="${escapeHtml(item.name)}信息传递" aria-checked="${item.enabled}" data-toggle-session="${item.id}"></button></div><div class="detail-row"><span>原生执行</span><strong>${stateLabels[item.execution]}</strong></div><div class="detail-row"><span>输入能力</span><strong>${item.writable ? '模拟可写' : '模拟只读'}</strong></div><div class="detail-row"><span>规则版本</span><strong>已注入 v${item.applied} / 已发布 v${current.revision}</strong></div><div class="detail-row"><span>房间路由</span><strong>${isCoordinator ? '当前统筹者' : inRoom ? '普通成员' : '非本房成员'}</strong></div></section><section class="inspector-section"><h3>收件箱 · ${pending.length} 排队</h3><p class="inspector-caption">每位成员独立队列；忙或预算不足时 held，就绪后按序投递。不设工种角色。</p>${pending.length ? pending.map((delivery) => `<div class="delivery-item"><b>${escapeHtml(state.messages.find((message) => message.id === delivery.messageId)?.text.slice(0, 45) || '消息')}</b><small>${reasonLabels[delivery.reason] || '等待投递'}</small></div>`).join('') : '<p class="inspector-caption">当前收件箱为空。</p>'}<button class="wide-button" data-ready-session="${item.id}">模拟原生就绪</button><button class="wide-button" data-wake-session="${item.id}">唤醒一次</button>${inRoom && current.mode === 'coordinator' && !isCoordinator ? `<button class="wide-button" data-make-coordinator="${item.id}">设为统筹者</button>` : ''}</section><section class="inspector-section"><h3>会话管理</h3><button class="wide-button" data-direct-session="${item.id}">与这个 session 对话</button>${inRoom ? `<button class="wide-button leave-button" data-leave-session="${item.id}">退出当前房间</button>` : ''}<button class="wide-button" data-rename-session="${item.id}">重命名本地显示</button><button class="wide-button" data-archive-session="${item.id}">归档本地关联</button><p class="inspector-caption">退出房间不影响原生 session；仅停止本房间自动唤醒。原生身份与正在干的活由宿主决定。</p></section>`;
 }
 
 function messageInspector(message) {
@@ -2641,13 +2797,18 @@ function messageInspector(message) {
 }
 
 function renderGraph() {
-  const messages = state.messages.filter((item) => item.roomId === state.roomId);
-  const traces = [...new Set(messages.map((item) => item.traceId))];
+  const messages = state.messages.filter(
+    (item) =>
+      item.roomId === state.roomId &&
+      (state.traceFilter === 'all' || item.traceId === state.traceFilter),
+  );
+  const allMessages = state.messages.filter((item) => item.roomId === state.roomId);
+  const traces = [...new Set(allMessages.map((item) => item.traceId))];
   $('traceFilter').innerHTML =
-    '<option value="all">全部链路</option>' +
+    '<option value="all">全部 Trace</option>' +
     traces.map((id) => `<option value="${id}">${id}</option>`).join('');
   $('traceFilter').value = state.traceFilter;
-  $('flowCount').textContent = `${messages.length} 条消息`;
+  $('flowCount').textContent = `${allMessages.length} 条消息 · ${modeLabel(room().mode)}`;
   const nodes = [
     { id: 'user', name: '你', role: '消息入口', provider: 'YOU', position: [18, 19] },
     ...room().members.map((id, index) => ({
@@ -2658,9 +2819,43 @@ function renderGraph() {
   $('graphNodes').innerHTML = nodes
     .map(
       (item) =>
-        `<button class="graph-node ${state.inspector?.id === item.id ? 'selected' : ''}" ${item.id === 'user' ? 'data-event-info="true"' : `data-inspect-session="${item.id}"`} style="left:${item.position[0]}%;top:${item.position[1]}%"><span class="orb">${item.provider === 'YOU' ? '你' : item.provider === 'Codex' ? 'C›' : '✳'}</span><b>${escapeHtml(item.name)}</b><small>${escapeHtml(roleFor(item))}${item.id !== 'user' ? ` · ${stateLabels[statusFor(item)]}` : ''}</small></button>`,
+        `<button class="graph-node ${state.inspector?.id === item.id ? 'selected' : ''}" ${item.id === 'user' ? 'data-event-info="true"' : `data-inspect-session="${item.id}"`} style="left:${item.position[0]}%;top:${item.position[1]}%"><span class="orb">${item.provider === 'YOU' ? '你' : item.provider === 'Codex' ? 'C›' : '✳'}</span><b>${escapeHtml(item.name)}</b><small>${item.id === 'user' ? '消息入口' : `${memberBadge(item) ? `${memberBadge(item)} · ` : ''}${stateLabels[statusFor(item)]}`}</small></button>`,
     )
     .join('');
+  const events = state.events
+    .filter((item) => item.roomId === state.roomId)
+    .filter(
+      (item) =>
+        state.traceFilter === 'all' ||
+        !item.messageId ||
+        state.messages.find((message) => message.id === item.messageId)?.traceId ===
+          state.traceFilter,
+    )
+    .slice(-30)
+    .reverse();
+  $('flowTimeline').innerHTML = events.length
+    ? events
+        .map((item) => {
+          const selected = state.inspector?.kind === 'message' && state.inspector.id === item.messageId;
+          return `<button class="flow-event ${selected ? 'selected' : ''}" ${item.messageId ? `data-message="${item.messageId}"` : 'data-event-info="true"'}><time>${timeLabel(item.at)}</time><span><b>${escapeHtml(item.description)}</b><small>${escapeHtml(item.status)}</small><span class="chip ${item.status.includes('等待') ? 'wait' : ''}">${item.messageId ? 'MESSAGE' : 'STATE'}</span></span></button>`;
+        })
+        .join('')
+    : '<p class="empty-state" style="color:#7f9186">暂无事件</p>';
+  const roomDeliveries = state.deliveries.filter((item) => item.roomId === state.roomId);
+  const queued = roomDeliveries.filter((item) => item.state === 'queued').length;
+  const held = roomDeliveries.filter((item) => item.state === 'held').length;
+  const submitted = roomDeliveries.filter((item) => item.state === 'submitted').length;
+  const openItems = roomDeliveries.filter((item) => ['queued', 'held'].includes(item.state));
+  $('deliveryBoard').innerHTML = `<div class="board-stat-row"><div class="board-stat"><b>${queued}</b><span>排队</span></div><div class="board-stat"><b>${held}</b><span>暂缓</span></div><div class="board-stat"><b>${submitted}</b><span>已提交</span></div></div>${
+    openItems.length
+      ? openItems
+          .map((item) => {
+            const message = state.messages.find((entry) => entry.id === item.messageId);
+            return `<div class="board-item"><b>${escapeHtml(senderName(item.recipient))} · ${item.state}</b><small>${escapeHtml(message?.text.slice(0, 48) || item.messageId)}<br>${reasonLabels[item.reason] || '等待投递'} · 规则 v${item.revision || room().revision}</small></div>`;
+          })
+          .join('')
+      : '<p class="inspector-caption" style="color:#7f9186;padding:8px 2px">收件箱空闲。每位成员有独立队列。</p>'
+  }<p class="inspector-caption" style="color:#7f9186;padding-top:12px">自动轮次 ${room().rounds}/${room().roundBudget} · 达上限后自动唤醒停止</p>`;
   $('pauseAnimation').textContent = animationPaused ? '恢复动画' : '暂停动画';
 }
 
@@ -2737,9 +2932,40 @@ function recipientsFor(text, sender, target, roomId = state.roomId) {
   if (mentions.length) return mentions.filter((id) => id !== sender);
   if (current.mode === 'all')
     return current.members.filter((id) => id !== sender && session(id).enabled);
-  if (current.mode === 'coordinator' && sender !== current.coordinator)
+  if (current.mode === 'coordinator' && sender !== current.coordinator && current.coordinator)
     return [current.coordinator];
+  // swarm / mentions / manual：无 @ 则只记历史，不自动唤醒
   return [];
+}
+
+function leaveMember(id) {
+  const current = room();
+  if (!current.members.includes(id)) return;
+  current.members = current.members.filter((member) => member !== id);
+  if (current.coordinator === id) {
+    current.coordinator = current.members[0] || null;
+    if (current.mode === 'coordinator') {
+      if (current.coordinator) toast(`统筹路由已转给 ${session(current.coordinator).name}`);
+      else {
+        current.mode = 'swarm';
+        toast('房间已无成员，模式改为 Swarm');
+      }
+    }
+  }
+  for (const delivery of state.deliveries) {
+    if (
+      delivery.roomId === current.id &&
+      delivery.recipient === id &&
+      ['queued', 'held'].includes(delivery.state)
+    ) {
+      delivery.state = 'held';
+      delivery.reason = 'left_room';
+    }
+  }
+  addEvent(`${senderName(id)} 退出房间`, '成员变更');
+  if (state.inspector?.id === id) state.inspector = null;
+  render();
+  toast('已退出房间；原生 session 仍在来源树中');
 }
 
 function sendMessage({
@@ -2903,7 +3129,9 @@ function previewQuery() {
     parts.push(
       `[执行策略]\nwake.mode: ${room().mode}\nbudget.max_auto_rounds: ${room().roundBudget}\nbudget.agent_messages_per_minute: ${room().messageBudget}`,
     );
-    parts.push(`[接收成员角色]\n${targetSession ? roleFor(targetSession) : '房间成员'}`);
+    parts.push(
+      `[接收成员]\n${targetSession ? `${targetSession.name}${memberBadge(targetSession) ? ' · 当前统筹者（路由）' : ''}` : '房间成员'}\n（不注入工种角色；保留原生 session 身份）`,
+    );
   }
   parts.push(
     `[来源]\n用户 → ${targetSession?.name || room().name} · scope=${direct ? 'direct' : room().id}`,
@@ -2928,11 +3156,13 @@ function showNameDialog(title, label, initialValue, description, callback) {
 function demoCollaboration() {
   const current = room();
   if (current.paused) return toast('房间已暂停，可以先恢复自动通信');
-  const lead = session(current.coordinator);
+  if (current.mode === 'coordinator' && !current.coordinator)
+    return toast('统筹模式需要指定一位统筹者');
+  const lead = session(current.coordinator || current.members[0]);
   const worker = current.members
     .map(session)
-    .find((item) => item.id !== lead.id && item.enabled && item.writable);
-  if (!lead.enabled || !worker) return toast('请让统筹者和至少一位可写成员开启通信');
+    .find((item) => item.id !== lead?.id && item.enabled && item.writable);
+  if (!lead?.enabled || !worker) return toast('请让统筹/发起者与至少一位可写成员开启通信');
   const start = sendMessage({ text: '请核对适配器契约，给出一份可实施的修改意见。', demo: true });
   toast('开始模拟协作，所有消息与队列变化都会留下记录');
   schedule(() => {
@@ -3002,37 +3232,48 @@ function drawCanvas(canvas, kind, now) {
       (rect.height * percent[1]) / 100 + (kind === 'room' ? 35 : 0),
     ]);
   });
-  const messages = state.messages.filter(
-    (item) =>
-      item.roomId === state.roomId &&
-      (state.traceFilter === 'all' || state.traceFilter === item.traceId),
-  );
+  const currentRoom = room();
   const edges = new Map();
-  for (const message of messages) {
-    for (const recipient of message.recipients)
-      edges.set(`${message.sender}-${recipient}`, { from: message.sender, to: recipient });
+  if (kind === 'room' && currentRoom.mode === 'coordinator' && currentRoom.coordinator) {
+    for (const memberId of currentRoom.members) {
+      if (memberId === currentRoom.coordinator) continue;
+      edges.set(`dispatch-${memberId}`, {
+        from: currentRoom.coordinator,
+        to: memberId,
+        dispatch: true,
+      });
+    }
+  } else if (kind === 'flow') {
+    const messages = state.messages.filter(
+      (item) =>
+        item.roomId === state.roomId &&
+        (state.traceFilter === 'all' || state.traceFilter === item.traceId),
+    );
+    for (const message of messages) {
+      for (const recipient of message.recipients)
+        edges.set(`${message.sender}-${recipient}`, { from: message.sender, to: recipient });
+    }
   }
-  context.lineWidth = 1;
+  // Swarm / 仅@ / 手动：房间视图不画成员固定连线，只保留在途粒子
+  context.lineWidth = 1.2;
   for (const edge of edges.values()) {
     const from = positions.get(edge.from);
     const to = positions.get(edge.to);
     if (!from || !to) continue;
-    context.strokeStyle = kind === 'flow' ? '#77927d65' : '#92a6923d';
+    context.strokeStyle = edge.dispatch ? '#d9a07466' : '#77927d65';
     context.beginPath();
     context.moveTo(...from);
     context.quadraticCurveTo((from[0] + to[0]) / 2 + 12, (from[1] + to[1]) / 2 - 20, ...to);
     context.stroke();
-    if (kind === 'flow') {
-      const angle = Math.atan2(to[1] - from[1], to[0] - from[0]);
-      const x = from[0] + (to[0] - from[0]) * 0.72;
-      const y = from[1] + (to[1] - from[1]) * 0.72 - 8;
-      context.beginPath();
-      context.moveTo(x, y);
-      context.lineTo(x - 5 * Math.cos(angle - 0.5), y - 5 * Math.sin(angle - 0.5));
-      context.moveTo(x, y);
-      context.lineTo(x - 5 * Math.cos(angle + 0.5), y - 5 * Math.sin(angle + 0.5));
-      context.stroke();
-    }
+    const angle = Math.atan2(to[1] - from[1], to[0] - from[0]);
+    const x = from[0] + (to[0] - from[0]) * 0.72;
+    const y = from[1] + (to[1] - from[1]) * 0.72 - 8;
+    context.beginPath();
+    context.moveTo(x, y);
+    context.lineTo(x - 5 * Math.cos(angle - 0.5), y - 5 * Math.sin(angle - 0.5));
+    context.moveTo(x, y);
+    context.lineTo(x - 5 * Math.cos(angle + 0.5), y - 5 * Math.sin(angle + 0.5));
+    context.stroke();
   }
   if (animationPaused) return;
   for (const packet of state.packets.filter((item) => item.roomId === state.roomId)) {
@@ -3085,7 +3326,16 @@ document.addEventListener('click', (event) => {
   else if (data.scope) showRules(data.scope);
   else if (data.toggleSession) toggleSession(data.toggleSession);
   else if (data.addSession) addMember(data.addSession);
-  else if (data.readySession) {
+  else if (data.leaveSession) leaveMember(data.leaveSession);
+  else if (data.makeCoordinator) {
+    const current = room();
+    current.mode = 'coordinator';
+    current.coordinator = data.makeCoordinator;
+    current.revision += 1;
+    addEvent(`${senderName(data.makeCoordinator)} 被设为统筹者（路由）`);
+    render();
+    toast('已更新统筹路由：派发连线与先唤醒对象已切换');
+  } else if (data.readySession) {
     session(data.readySession).execution = 'idle';
     flushQueues(data.readySession);
     render();
@@ -3140,17 +3390,6 @@ document.addEventListener('click', (event) => {
   else if (data.eventInfo) toast('这是一条已记录的模拟状态事件');
 });
 
-document.addEventListener('change', (event) => {
-  const id = event.target.dataset.roleSession;
-  if (!id) return;
-  room().roles ??= {};
-  room().roles[id] = event.target.value;
-  if (event.target.value === '统筹') room().coordinator = id;
-  room().revision += 1;
-  addEvent(`${senderName(id)} 的角色已更新 · 下次 query 应用`);
-  render();
-});
-
 $('sessionSearch').addEventListener('input', renderSidebar);
 $('workspaceButton').addEventListener('click', () =>
   toast('当前为个人工作区，团队部署架构见设计文档'),
@@ -3181,10 +3420,25 @@ $('pauseRoom').addEventListener('click', () => {
   render();
 });
 $('wakeMode').addEventListener('change', (event) => {
-  room().mode = event.target.value;
-  room().revision += 1;
-  addEvent(`唤醒方式更新 · ${modeLabel(room().mode)}`);
+  const current = room();
+  current.mode = event.target.value;
+  if (current.mode === 'coordinator') {
+    if (!current.coordinator || !current.members.includes(current.coordinator)) {
+      current.coordinator = current.members[0] || null;
+    }
+  } else if (current.mode === 'swarm') {
+    // Swarm 不使用统筹路由；保留字段但不画派发线
+  }
+  current.revision += 1;
+  addEvent(`房间模式更新 · ${modeLabel(current.mode)}`);
   render();
+  toast(
+    current.mode === 'coordinator'
+      ? '统筹模式：显示派发连线，用户消息先到统筹者'
+      : current.mode === 'swarm'
+        ? 'Swarm：无固定连线，默认按 @ 唤醒'
+        : `已切换为 ${modeLabel(current.mode)}`,
+  );
 });
 $('traceFilter').addEventListener('change', (event) => {
   state.traceFilter = event.target.value;
@@ -3239,15 +3493,15 @@ $('createRoom').addEventListener('click', () =>
       id,
       name,
       members: [],
-      mode: 'mentions',
-      coordinator: 'c1',
+      mode: 'swarm',
+      coordinator: null,
       paused: false,
       revision: 1,
       roundBudget: 4,
       messageBudget: 12,
       rounds: 0,
       autoMessages: 0,
-      document: `# ${name}\n\n需要他人处理时 @ 对方，结果附上来源与产物引用。`,
+      document: `# ${name}\n\nSwarm 房间：需要他人处理时 @ 对方，结果附上来源与产物引用。`,
     });
     selectRoom(id);
   }),
@@ -3266,7 +3520,6 @@ $('createSession').addEventListener('click', () =>
         host: 'Terminal',
         name,
         alias: id,
-        role: '实现',
         execution: 'idle',
         enabled: true,
         writable: true,

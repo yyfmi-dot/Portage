@@ -1,6 +1,6 @@
-﻿# Portage 架构设计方案 v0.2
+﻿# Portage 架构设计方案 v1.0
 
-更新于 2026-11-15。本方案覆盖跨来源会话、房间协作和个人到团队的演进。默认参数是可调建议，性能数字是待验证目标。当前交付为文档和模拟交互原型，真实服务端与连接器待实现。
+更新于 2026-11-17。本方案为第一版冻结架构，与 PRODUCT / DOMAIN / UX / MVP 及 HTML 原型对齐。覆盖跨来源会话、房间协作和个人到团队的演进。默认参数是可调建议，性能数字是待验证目标。当前实现：TypeScript 单体 Daemon（MemoryBus + SQLite 快照 + EventLog/SSE）、CLI 进程发现与 FileInbox 注入、MCP 桥接（agent 读取并产生 `agent_ack`、回复沿用 trace、报告忙闲）、正式 Web UI；PTY / IDE / App 原生注入待实现。
 
 图中方括号代表对象或模块，`→` 表示有方向的连接，`↔` 表示双向通信，分叉表示独立去向。箭头旁标注传递的内容或触发条件；部署在同一进程内的模块也保持这些接口边界。
 
@@ -8,14 +8,14 @@
 
 Portage 统一管理不同来源的原生 agent session，让用户直接对话、组织房间、传递信息与产物，并追踪每次消息传递。
 
-原生宿主负责模型调用、推理、工具执行与自身上下文。Portage 负责接入、寻址、权限、上下文包装、通信调度、记录同步与可观测性。统筹 agent 使用这些通信能力作出具体分工决定。
+原生宿主负责模型调用、推理、工具执行与自身上下文。Portage 负责接入、寻址、权限、上下文包装、通信调度、记录同步与可观测性。不改写各 session 已有身份与正在干的活；统筹者仅作唤醒与连线路由，具体找谁帮忙由消息内容与协作约定指导。
 
 | 用户需求 | 架构落点 |
 | --- | --- |
 | 按 Codex / Claude，再按 App / VS Code CLI / Terminal 查看 | Registry 的 provider、harness、host 分组 |
 | 直接与已有 session 对话 | Session、NativeBinding、Adapter |
 | 拖动 session 组成聊天室 / team | Conversation、Membership、Subscription |
-| 配置角色、负责人、读写范围 | PolicyDocument、RoleAssignment、PolicyService |
+| 配置统筹者、读写范围与协作约定 | PolicyDocument、RoomPolicy.coordinator、PolicyService |
 | enable / disable 任意 session 的通信 | 总开关与每次读写、投递检查 |
 | session 和记录的增删改查 | 管理 API、能力声明、版本与作用范围 |
 | 实际走指定 terminal session | 原生身份、endpoint、epoch 校验与提交证明 |
@@ -35,7 +35,7 @@ Portage 统一管理不同来源的原生 agent session，让用户直接对话�
 | Participant | 收发消息及加入房间的身份 | 用户，或代表 session 的 agent |
 | Handle | 可寻址别名，内部解析到稳定 ID | `@codex-review` |
 | Conversation | Portage 保存的通信空间 | 私聊或房间 |
-| Room / Team | 多成员 conversation，附带规则与角色 | Portage 开发室 |
+| Room / Team | 多成员 conversation，附带规则与可选统筹者 | Portage 开发室 |
 | Membership | 某身份在房间中的成员关系 | 可读、可写、可管理配置 |
 | Thread | 房间中一个主题的消息分支 | 适配器评审 |
 | Message | 一份逻辑内容及其引用 | 请求、回复、文件说明 |
@@ -43,7 +43,7 @@ Portage 统一管理不同来源的原生 agent session，让用户直接对话�
 | Inbox / 消息队列 | 尚待投递的工作，有序等待接收方 | A 忙时排队，恢复就绪后提交 |
 | Bus | 寻址、收发、分发、订阅的统一服务边界 | UI、MCP、连接器共用应用 API |
 | EventLog | 持久记录消息、配置和投递变化 | 谁在何时把什么送到哪里 |
-| Trace | 一次交互及后续通信的因果链 | 用户 → 统筹 → 实现 / 审查 → 汇总 |
+| Trace | 一次交互及后续通信的因果链 | 用户 → 统筹 session → 成员 session → 汇总 |
 | Artifact | 有版本、来源及访问权限的产物 | 文件、图片、报告、结构化结果 |
 | Projection | 从持久记录生成的查询视图 | 来源树、房间状态、时间线、链路图 |
 
@@ -57,10 +57,11 @@ Session 对应原生对话身份，Thread 对应 Portage 房间中的主题。�
     │               ├──绑定──→ [NativeBinding] ──选择活动入口──→ [Endpoint]
     │               └──代表──→ [Participant agent 身份]
     │                                 │
-    │                           [Membership + RoleAssignment]
-    │                                 │ 加入 / 获得房间内角色
+    │                           [Membership]
+    │                                 │ 加入 / 退出
     │                                 ▼
     └──包含──→ [Conversation 私聊 / 房间] ←──加入── [Participant 用户身份]
+                    │ 可选 coordinator（路由，非工种）
                     │
                     ├──组织主题──→ [Thread] ──归集──→ [Message]
                     └──保存内容────────────────────→ [Message]
@@ -78,7 +79,7 @@ Session 对应原生对话身份，Thread 对应 Portage 房间中的主题。�
 | Workspace 包含多个 Session | 会话属于一个工作区，身份跨进程重启保持 |
 | Session 通过 NativeBinding 连接 Endpoint | 同一原生会话可以有多个可验证入口，自动投递使用唯一活动入口 |
 | Session 对应一个 agent Participant | 成员关系和消息使用 Participant 身份，输入投递解析到对应 Session |
-| Participant 通过 Membership 加入 Conversation | 一个身份可以加入多个房间，每个房间分别保存权限和角色 |
+| Participant 通过 Membership 加入 Conversation | 一个身份可以加入多个房间；各房间保存权限，不设工种角色 |
 | Conversation 包含 Thread 和 Message | Thread 组织主题，Message 保存具体内容和来源 |
 | Message 分发为多个 Delivery | 每位接收 Session 独立排队、确认和处理失败 |
 | Message 引用 Artifact | 同一产物可以被多条授权消息引用，并保留版本与来源 |
@@ -113,7 +114,7 @@ Session 对应原生对话身份，Thread 对应 Portage 房间中的主题。�
                     ├──暂不满足条件──→ [held + 原因] ──条件恢复──→ [重新调度]
                     │
                     ▼ 可投递
-          [ContextCompiler：编译本次 query] ←── [适用 MD / 角色 / 授权引用]
+          [ContextCompiler：编译本次 query] ←── [适用 MD 约束 / 授权引用]
                     │                              ↑
                     │                         [Artifacts 内容与版本]
                     ▼
@@ -172,8 +173,8 @@ Messaging 调用身份、成员与策略服务完成检查；通过后才进入�
 | 模块 | 职责 |
 | --- | --- |
 | registry | 发现来源、持久 session、endpoint、binding、活动入口、能力 |
-| conversations | 私聊、房间、成员、角色关系、thread、订阅与游标 |
-| policy | 权限、通信开关、角色配置、路由、唤醒、配额 |
+| conversations | 私聊、房间、成员、thread、订阅与游标 |
+| policy | 权限、通信开关、统筹者路由、唤醒、配额、协作 MD |
 | context | 编译适用 MD、授权引用与原始消息，保存输入快照 |
 | messaging | 幂等接收、目标解析、逐接收方 Delivery |
 | delivery | 排队、ready 门控、公平调度、租约、重试、不确定结果 |
@@ -237,9 +238,20 @@ Adapter 提供写入字节、提交输入、原生消息确认等分层凭据。
 
 每个连接中的 session 声明读取、写入、附件及管理能力。产品名称、版本和连接方式通过接入验收确定能力，UI 据此开放操作。连接故障可使写入能力临时降级，同时继续读取已有记录。
 
-## 5. 房间、角色和唤醒
+## 5. 房间、统筹路由和唤醒
 
-房间包含成员、thread、角色说明、默认入口、订阅与策略。拖入 session 调用成员管理 API。一个 session 可以加入多个房间，每次读写与投递携带具体 room。
+房间包含成员、thread、协作约定、默认入口、订阅与策略。拖入或选择添加 session 调用成员管理 API；退出调用离开 API，写入 `Membership.leftAt`，活动成员列表移除该身份。退出后该 session 不再接收本房间新的自动 Delivery；进行中的 Delivery 进入 held/cancelled 并保留原因。历史是否仍可读由 `historyScope` 决定。一个 session 可以加入多个房间，每次读写与投递携带具体 room。
+
+**不设房间工种角色。** 原生 session 的身份与当前工作留在宿主上下文；Portage 只管理通信。collaboration.md 提供约束与指导（联系方式、产物格式、频率），不改写模型 persona。
+
+房间协作拓扑 v1 冻结为两种主模式：
+
+| 模式 | 唤醒 | 房间视图连线 | 约束 |
+| --- | --- | --- | --- |
+| 统筹 `coordinator` | 用户发到房间时先唤醒唯一统筹者 | 统筹 → 各成员的派发连线 | 有且仅有一位 coordinator |
+| Swarm `swarm` | 默认仅 @；可选手动 | 无成员间固定连线 | 不设派发中心 |
+
+另可选 `mentions` / `manual` 作为细项；`all` 不作为 v1 默认推荐。UI 切换模式时同步更新连线投影，不改写历史消息。
 
 统筹模式下，用户消息写入房间历史，先唤醒 coordinator。其他授权成员可读历史。Coordinator 根据上下文决定具体分工，再通过消息或 mention 联系成员，收回产物并汇总。
 
@@ -270,7 +282,7 @@ Adapter 提供写入字节、提交输入、原生消息确认等分层凭据。
           └── traceId + causalParentIds ──→ [信息流图：分发、等待、回复、汇总]
 ```
 
-图中的 agent 间箭头全部经过 Portage 的权限、队列与适配器链路。实现和审查是两个独立分支；一位成员忙碌时，另一位仍可接收。若审查依赖实现产物，统筹者在产物返回后再发审查请求。每个下游请求引用上游消息，结果与产物同样保留因果关系。
+图中的 agent 间箭头全部经过 Portage 的权限、队列与适配器链路。不同成员是独立投递分支；一位忙碌时，另一位仍可接收。若某条下游依赖上游产物，由统筹者或发送方在产物返回后再发下一条消息——这是通信顺序，不是 Portage 分配的工种。每个下游请求引用上游消息，结果与产物同样保留因果关系。
 
 “可读取”与“被唤醒”是两个独立出口：
 
@@ -284,31 +296,53 @@ Adapter 提供写入字节、提交输入、原生消息确认等分层凭据。
 
 房间内定向消息沿用房间的读取范围，私聊使用独立 Conversation。自动唤醒对象由房间策略和显式目标确定。
 
-讨论模式可采用 mentions、coordinator、all、manual。可读范围与自动唤醒范围分别配置。all 为每位授权接收成员创建独立 Delivery，成员各自拥有 readCursor 和投递状态。
+可读范围与自动唤醒范围分别配置。每位被唤醒的接收成员拥有独立 Delivery / Inbox 与 readCursor。
 
-角色正文说明“负责统筹 / 实现 / 审查”等职责。结构化权限控制读、写、邀请、修改规则和管理角色，由服务端执行。用户可以委派某个 agent 配置角色和权限，该 agent 调用与 UI 相同的管理 API，并受自身授权范围约束。
+统筹者在统筹模式下唯一：改任时更新 `RoomPolicy.coordinatorParticipantId`，原统筹者恢复为普通成员（无工种标签）。结构化权限控制读、写、邀请、退出、修改规则和指定统筹者，由服务端执行。用户可以委派某个 agent 调用与 UI 相同的管理 API，并受自身授权范围约束。
+
+### 5.1 收件箱与自动轮次
+
+```text
+[Message 被接受]
+    └──为每位唤醒目标创建 Delivery
+            └──进入该 Session 的 Inbox（有序队列）
+                    ├──ready ──→ 调度提交
+                    └──busy / 离线 / 预算 / 暂停 ──→ queued 或 held（保留原因）
+```
+
+收件箱会排队：同一 Session 的待投递项按序等待，不因房间内其他成员忙而丢弃。
+
+自动轮次预算 `rounds / max_auto_rounds`（界面如 `2/4`）：
+
+```text
+[用户消息] = 轮次 0 起点
+[agent 自动互唤醒并回复] → rounds += 1
+...
+[rounds == max_auto_rounds] → 停止自动唤醒，Delivery held(reason=round_budget)，等待用户
+```
+
+一轮指同一 trace 上一次「自动发起的 agent→agent（或 agent→房间再唤醒）投递」。用户手动发送或「唤醒一次」不消耗该预算，或按策略单独计数（v1 默认：手动不计入自动轮次）。
 
 关闭 session 通信时停止新的跨 session 收发与自动唤醒，已有待投递项进入 held。用户仍可按自身权限查看记录和管理设置。重新开启时校验当前成员权限、绑定代次、有效期和策略后恢复。房间暂停、订阅静默、session 总开关分别记录。
 
 ## 6. 分层 MD 与生效
 
-文档层级采用组织 / 全局 → 工作区 → 房间 collaboration.md → 房间内成员角色说明。个人版提供默认工作区和用户最高层 MD。
+文档层级采用组织 / 全局 → 工作区 → 房间 collaboration.md。个人版提供默认工作区和用户最高层 MD。**不再注入「成员角色 MD」。**
 
-文档正文用于行为说明，经过 schema 校验的 YAML frontmatter 用于服务端可执行策略。版本、修改者和实际生效结果一起保存。
+文档正文用于通信约束与指导；经过 schema 校验的 YAML frontmatter 用于服务端可执行策略。版本、修改者和实际生效结果一起保存。注入时明确这是房间约定，不覆盖原生会话已有身份。
 
 ```text
 [组织 / 全局 MD] ───────┐
-[工作区 MD] ────────────┤
-[房间 collaboration.md] ┼──→ [按接收者 + Conversation 选择已发布版本]
-[房间内角色 MD] ────────┘                         │
-                                                 ├──结构化配置──→ [Policy：权限 / 预算]
+[工作区 MD] ────────────┼──→ [按接收者 + Conversation 选择已发布版本]
+[房间 collaboration.md] ─┘                         │
+                                                 ├──结构化配置──→ [Policy：权限 / 预算 / 统筹者]
                                                  │                         │ 通过才允许提交
                                                  ▼                         │
                                            [ContextCompiler] ←────────────┘
                                                  ↑
 [原始 Message 正文] ─────────────────────────────┤
 [授权 Artifact 引用] → [按目标能力材料化] ────────┘
-                                                 │ 编译一次
+                                                 │ 编译一次（短约束，非新 persona）
                                                  ▼
                          [ContextSnapshot：实际 query / revisions / hash / 注入清单]
                                                  │
@@ -321,18 +355,18 @@ Adapter 提供写入字节、提交输入、原生消息确认等分层凭据。
 [原生宿主必须重载的配置] → [适配器支持的 reload] → [nativeAppliedRevision / 待应用原因]
 ```
 
-私聊按自身 Conversation 选择适用文档；房间与角色文档只进入对应范围的 query。Artifacts 记录采用原生附件还是文件引用，ContextSnapshot 保留最终注入内容和体积，便于用户预览与事后核对。
+私聊按自身 Conversation 选择适用文档；房间约定只进入对应范围的 query。Artifacts 记录采用原生附件还是文件引用，ContextSnapshot 保留最终注入内容和体积，便于用户预览与事后核对。
 
-每次经 Portage 发往原生 session 的 query，默认贴入适用最高层 MD、房间规则和角色说明。原始正文与编译 payload 分开保存，转发引用原始消息，每次只编译一遍，避免多跳重复叠加。
+每次经 Portage 发往原生 session 的 query，默认可贴入适用最高层 MD 与房间协作约定。原始正文与编译 payload 分开保存，转发引用原始消息，每次只编译一遍。
 
-权限与预算取各适用层级的约束交集。下层可收窄既有范围，扩大授权需要调用者有相应管理权限。行为说明标注层级与来源，原生宿主决定它在模型输入中的实际角色和优先级。
+权限与预算取各适用层级的约束交集。下层可收窄既有范围，扩大授权需要调用者有相应管理权限。行为说明标注层级与来源；**原生宿主与模型既有角色优先**，Portage 文本只作补充约束。
 
 ```yaml
 ---
 version: 1
 wake:
-  mode: coordinator
-  coordinator: session-codex-terminal-1
+  mode: coordinator   # coordinator | swarm | mentions | manual
+  coordinator: session-codex-terminal-1  # mode=coordinator 时必填且唯一
   batch_window_ms: 750
   max_concurrent: 2
 budget:
@@ -344,17 +378,19 @@ budget:
 
 # Portage 开发室
 
-统筹者先接收用户请求，明确目标、输入与产物后联系成员。
-需要他人处理时明确 @ 对方。常规进度写状态，完成后发结果和产物引用。
-继续讨论时写清具体问题及希望谁回答。
+# 通信约定（约束与指导，不改写各 session 原有身份）
+
+统筹者先接收用户请求，再联系需要协助的成员。
+需要他人处理时明确 @ 对方。完成后附结果与产物引用。
+自动讨论达到 max_auto_rounds 后等待用户恢复。
 ```
 
-上述参数用于初始验证，可按房间调整。
+上述参数用于初始验证，可按房间调整。界面「2/4 自动轮次」即当前 `rounds` / `max_auto_rounds`。
 
 | 变更 | 生效时机 |
 | --- | --- |
-| 权限、开关、预算 | 原子发布 revision 后，下一次读写或投递检查立即使用 |
-| MD 正文与角色说明 | 下一次 query 编译时使用 |
+| 权限、开关、预算、统筹者 | 原子发布 revision 后，下一次读写或投递检查立即使用 |
+| MD 正文（协作约束） | 下一次 query 编译时使用 |
 | 当前模型正在运行的 turn | 保存待应用版本，在下一个可接收输入边界使用 |
 | 原生宿主启动时读取的配置 | 按适配器显示待原生重载，调用其支持的 reload 操作 |
 
@@ -368,7 +404,7 @@ budget:
 
 | 机制 | 具体行为 |
 | --- | --- |
-| 定向唤醒 | 新房间默认 mentions，也可选择 coordinator、all、manual |
+| 定向唤醒 | 新房间默认 swarm（仅 @）；开发室示例为 coordinator；另可选 mentions、manual |
 | 就绪门控 | 自动输入等 ready，用户可选择适配器支持的立即输入方式 |
 | 合并提醒 | 小时间窗合并唤醒，保留每条消息的 ID、顺序与回执 |
 | 并发预算 | 房间自动活动席位有上限，native session 串行提交输入 |

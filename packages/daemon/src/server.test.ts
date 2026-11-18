@@ -1,0 +1,222 @@
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { startServer } from "./server.js";
+
+type Started = Awaited<ReturnType<typeof startServer>>;
+// Response bodies are asserted field by field; a loose type keeps the assertions readable.
+type Json = any;
+
+describe("daemon HTTP API L4 closed loop", () => {
+  let home = "";
+  let started: Started | undefined;
+  let base = "";
+
+  const post = (path: string, body: unknown = {}) =>
+    fetch(`${base}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(async (r) => ({ status: r.status, json: (await r.json()) as Json }));
+  const snapshot = () => fetch(`${base}/api/snapshot`).then((r) => r.json() as Promise<Json>);
+  const latestInboxText = (provider: string, nativeIdentity: string) => {
+    const dir = join(home, "inbox", provider, nativeIdentity);
+    expect(existsSync(dir)).toBe(true);
+    const files = readdirSync(dir).filter((f) => f.endsWith(".txt")).sort();
+    return readFileSync(join(dir, files.at(-1)!), "utf8");
+  };
+  const stop = (s: Started) =>
+    new Promise<void>((resolve, reject) => s.server.close((e) => (e ? reject(e) : resolve())));
+
+  beforeAll(async () => {
+    home = mkdtempSync(join(tmpdir(), "portage-home-"));
+    process.env.PORTAGE_HOME = home;
+    started = await startServer(8791);
+    base = `http://127.0.0.1:${started.port}`;
+  });
+
+  afterAll(async () => {
+    if (started) await stop(started);
+    if (home) rmSync(home, { recursive: true, force: true });
+  });
+
+  it("serves dual-provider three-member room with valid native identities", async () => {
+    const health = await fetch(`${base}/api/health`).then((r) => r.json() as Promise<Json>);
+    expect(health.ok).toBe(true);
+    const snap = await snapshot();
+    const room = snap.conversations.find((c: { id: string }) => c.id === "room_dev");
+    expect(room.policy.wakeMode).toBe("coordinator");
+    expect(room.document.publishedRevision).toBe(1);
+    expect(snap.globalDocument.publishedRevision).toBe(1);
+    const providers = new Set(snap.sessions.map((s: { provider: string }) => s.provider));
+    expect(providers).toEqual(new Set(["codex", "claude"]));
+    for (const session of snap.sessions) {
+      expect(String(session.nativeIdentity)).not.toMatch(/undefined/);
+    }
+    expect(snap.memberships.filter((m: { conversationId: string; leftAt?: string }) => m.conversationId === "room_dev" && !m.leftAt)).toHaveLength(3);
+  });
+
+  it("user → coordinator → @members with global + room layers in the native inbox", async () => {
+    const published = await post("/api/rooms/room_dev/policy", {
+      markdown: "# collaboration.md\n\n- 仅约束协作边界\n- 不改写原生人格",
+      maxAutoRounds: 4,
+    });
+    expect(published.json.document.publishedRevision).toBe(2);
+
+    const user = await post("/api/conversations/room_dev/send", {
+      text: "请统筹推进适配器契约",
+      idempotencyKey: "l4_user",
+    });
+    expect(user.json.deliveries).toHaveLength(1);
+    expect(user.json.deliveries[0]).toMatchObject({ recipientSessionId: "s_lead", state: "submitted" });
+
+    const snap = await snapshot();
+    const lead = snap.sessions.find((s: { id: string }) => s.id === "s_lead");
+    const leadText = latestInboxText(lead.provider, lead.nativeIdentity);
+    expect(leadText).toContain("请统筹推进适配器契约");
+    expect(leadText).toContain("[全局 PORTAGE.md · v1");
+    expect(leadText).toContain("[房间 collaboration.md · v2");
+    expect(leadText).toContain("当前统筹者（路由）");
+    expect(snap.contextSnapshots[user.json.deliveries[0].id].query).toBe(leadText);
+    const receipt = snap.receipts.find((r: { deliveryId: string }) => r.deliveryId === user.json.deliveries[0].id);
+    expect(receipt).toMatchObject({ adapterId: "cli-file-inbox", proofLevel: "submitted" });
+
+    const agent = await post("/api/conversations/room_dev/send", {
+      senderId: "p_lead",
+      source: "agent",
+      text: "@builder @reviewer 请分别核对",
+      mentionParticipantIds: ["p_builder", "p_reviewer"],
+      traceId: user.json.message.traceId,
+      causalParentIds: [user.json.message.id],
+      idempotencyKey: "l4_lead",
+    });
+    const by = Object.fromEntries(agent.json.deliveries.map((d: { recipientSessionId: string }) => [d.recipientSessionId, d]));
+    expect(by.s_builder).toMatchObject({ state: "queued", reason: "busy" });
+    expect(by.s_reviewer.state).toBe("submitted");
+    expect(agent.json.message.traceId).toBe(user.json.message.traceId);
+
+    const after = await snapshot();
+    expect(after.conversations.find((c: { id: string }) => c.id === "room_dev").state.rounds).toBe(1);
+    const reviewer = after.sessions.find((s: { id: string }) => s.id === "s_reviewer");
+    expect(latestInboxText(reviewer.provider, reviewer.nativeIdentity)).toContain("请分别核对");
+
+    const ready = await post("/api/sessions/s_builder/ready");
+    expect(ready.json.deliveries.find((d: { id: string }) => d.id === by.s_builder.id).state).toBe("submitted");
+    const builder = after.sessions.find((s: { id: string }) => s.id === "s_builder");
+    expect(latestInboxText(builder.provider, builder.nativeIdentity)).toContain("请分别核对");
+
+    const trace = (await snapshot()).events.filter((e: { traceId?: string }) => e.traceId === user.json.message.traceId);
+    expect(trace.map((e: { eventType: string }) => e.eventType)).toEqual(
+      expect.arrayContaining(["MessageAccepted", "DeliveryQueued", "DeliverySubmitted"]),
+    );
+  });
+
+  it("pause holds and resume flushes; disabled communication holds and re-enable flushes", async () => {
+    await post("/api/rooms/room_dev/pause", { paused: true });
+    const paused = await post("/api/conversations/room_dev/send", { text: "暂停期间", idempotencyKey: "l4_pause" });
+    expect(paused.json.deliveries[0]).toMatchObject({ state: "held", reason: "room_paused" });
+    const resumed = await post("/api/rooms/room_dev/pause", { paused: false });
+    expect(resumed.json.deliveries[0].state).toBe("submitted");
+
+    await post("/api/sessions/s_lead/communication", { enabled: false });
+    const off = await post("/api/conversations/room_dev/send", { text: "关闭期间", idempotencyKey: "l4_off" });
+    expect(off.json.deliveries[0]).toMatchObject({ state: "held", reason: "disabled" });
+    const on = await post("/api/sessions/s_lead/communication", { enabled: true });
+    expect(on.json.deliveries[0].state).toBe("submitted");
+  });
+
+  it("preview compiles what the recipient will get; artifacts and direct chat reach the inbox", async () => {
+    const preview = await post("/api/conversations/room_dev/preview", { text: "预览正文" });
+    expect(preview.json.recipientSessionId).toBe("s_lead");
+    expect(preview.json.snapshot.layers).toEqual(["全局 PORTAGE.md", "房间 collaboration.md", "执行策略", "原始消息"]);
+
+    const artifact = await post("/api/artifacts", {
+      name: "review.md",
+      mime: "text/markdown",
+      contentBase64: Buffer.from("# review").toString("base64"),
+      conversationId: "room_dev",
+    });
+    expect(artifact.json.byteSize).toBe(8);
+    expect(readFileSync(artifact.json.storageKey, "utf8")).toBe("# review");
+    const withFile = await post("/api/conversations/room_dev/send", {
+      text: "附上评审",
+      artifactIds: [artifact.json.id],
+      idempotencyKey: "l4_art",
+    });
+    const snap = await snapshot();
+    expect(snap.contextSnapshots[withFile.json.deliveries[0].id].query).toContain("review.md · v1 · 8 bytes");
+
+    const dm = await post("/api/sessions/s_reviewer/direct");
+    expect(dm.json.kind).toBe("direct");
+    const direct = await post(`/api/conversations/${dm.json.id}/send`, {
+      text: "私聊审查",
+      target: { kind: "participant", id: "p_reviewer" },
+      idempotencyKey: "l4_dm",
+    });
+    expect(direct.json.deliveries[0]).toMatchObject({ recipientSessionId: "s_reviewer", state: "submitted" });
+    const reviewer = snap.sessions.find((s: { id: string }) => s.id === "s_reviewer");
+    const text = latestInboxText(reviewer.provider, reviewer.nativeIdentity);
+    expect(text).toContain("私聊审查");
+    expect(text).not.toContain("collaboration.md");
+  });
+
+  it("registers a discovered session, joins/leaves, swarm suppresses wake, conflicts are explicit", async () => {
+    const registered = await post("/api/sessions", {
+      provider: "codex",
+      host: "terminal",
+      nativeIdentity: "pid-424242",
+      displayName: "资料会话",
+    });
+    expect(registered.status).toBe(200);
+    const participantId = `p_${registered.json.id.slice(2)}`;
+    expect((await post("/api/sessions", { provider: "codex", nativeIdentity: "pid-424242" })).status).toBe(409);
+
+    await post("/api/rooms/room_dev/members", { participantId });
+    const left = await post(`/api/rooms/room_dev/members/${participantId}/leave`);
+    expect(left.json.leftAt).toBeTruthy();
+
+    await post("/api/rooms/room_dev/wake-mode", { mode: "swarm" });
+    const swarm = await post("/api/conversations/room_dev/send", { text: "开放讨论", idempotencyKey: "l4_swarm" });
+    expect(swarm.json.deliveries).toHaveLength(0);
+    const events = (await snapshot()).events;
+    expect(events.some((e: { eventType: string; entityId: string }) => e.eventType === "WakeSuppressed" && e.entityId === swarm.json.message.id)).toBe(true);
+
+    const conflict = await post("/api/conversations/room_dev/send", { text: "不同正文", idempotencyKey: "l4_swarm" });
+    expect(conflict.status).toBe(400);
+    expect(conflict.json.error).toMatch(/conflict/);
+    await post("/api/rooms/room_dev/wake-mode", { mode: "coordinator", coordinatorParticipantId: "p_lead" });
+  });
+
+  it("streams bus events over SSE", async () => {
+    const controller = new AbortController();
+    const since = (await snapshot()).lastEventSeq;
+    const response = await fetch(`${base}/api/events/stream?since=${since}`, { signal: controller.signal });
+    const reader = response.body!.getReader();
+    await post("/api/conversations/room_dev/send", { text: "sse", idempotencyKey: "l4_sse" });
+    let buffer = "";
+    while (!buffer.includes("DeliverySubmitted")) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += new TextDecoder().decode(value);
+    }
+    controller.abort();
+    expect(buffer).toContain("event: bus");
+    expect(buffer).toContain("MessageAccepted");
+    expect(buffer).toContain("DeliverySubmitted");
+  });
+
+  it("restart hydrates state and continues seq without losing snapshots", async () => {
+    const before = await snapshot();
+    const lastSeq = Math.max(...before.messages.filter((m: { conversationId: string }) => m.conversationId === "room_dev").map((m: { seq: number }) => m.seq));
+    await stop(started!);
+    started = await startServer(8791);
+    const after = await snapshot();
+    expect(after.messages.length).toBe(before.messages.length);
+    expect(Object.keys(after.contextSnapshots).length).toBe(Object.keys(before.contextSnapshots).length);
+    const next = await post("/api/conversations/room_dev/send", { text: "重启后", idempotencyKey: "l4_restart" });
+    expect(next.json.message.seq).toBe(lastSeq + 1);
+    const replay = await post("/api/conversations/room_dev/send", { text: "请统筹推进适配器契约", idempotencyKey: "l4_user" });
+    expect(replay.json.message.seq).toBe(1);
+  });
+}, 60000);

@@ -1,0 +1,21 @@
+{
+  "name": "portage",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm test -w @portage/core && npm test -w @portage/adapters && npm test -w @portage/daemon && npm test -w @portage/mcp",
+    "mcp:config": "node packages/mcp/bin/portage-mcp.mjs --print-config",
+    "typecheck": "tsc -p tsconfig.json && tsc -p apps/web/tsconfig.json",
+    "test:core": "npm test -w @portage/core",
+    "test:adapters": "npm test -w @portage/adapters",
+    "dev:web": "npm run dev -w @portage/web",
+    "daemon:demo": "npm run demo -w @portage/daemon",
+    "daemon:discover": "npm run start -w @portage/daemon -- discover",
+    "daemon:serve": "npm run serve -w @portage/daemon"
+  }
+}
