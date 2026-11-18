@@ -91,11 +91,14 @@
               <section id="roomView" class="room-view" aria-label="协作房间">
                 <div class="office-meta">
                   <span><i class="live-dot"></i><span id="roomStatus">房间状态</span></span
+                  ><span class="room-pulse" id="roomPulse" title="房间内 Bus 事件密度（每格 30 秒）"></span
                   ><button id="demoCollaboration" class="button demo-button">▷ 演示协作</button>
                 </div>
+                <div id="attentionBar" class="attention-bar" role="status" hidden></div>
                 <div class="office" id="office">
                   <div class="office-floor"></div>
-                  <div class="office-window"></div>
+                  <div class="office-light" aria-hidden="true"></div>
+                  <div class="office-window"><i class="window-sky"></i></div>
                   <div class="office-plant"><i></i><i></i><i></i><span></span></div>
                   <div class="room-sign"><span>PORTAGE</span><small>BUILD TOGETHER</small></div>
                   <div class="office-door" aria-hidden="true"><span>YOU</span></div>
@@ -114,13 +117,21 @@
                     <span><i class="legend-dot active"></i>工作中</span
                     ><span><i class="legend-dot queued"></i>等待投递</span
                     ><span><i class="legend-dot dormant"></i>未唤醒</span
-                    ><span><i class="legend-dot packet"></i>在途投递</span>
+                    ><span><i class="legend-dot packet"></i>在途投递</span
+                    ><span><i class="legend-dot human"></i>待你处理</span
+                    ><span id="dispatchLegend" hidden><i class="legend-line dispatch"></i>统筹派发路线</span>
                   </div>
                 </div>
                 <div class="room-summary" id="roomSummary"></div>
               </section>
               <section id="chatView" class="chat-view" aria-label="对话记录" hidden>
-                <div class="chat-context" id="chatContext"></div>
+                <div class="chat-bar">
+                  <div class="chat-context" id="chatContext"></div>
+                  <div id="chatSource" class="segmented" role="tablist" aria-label="记录来源" hidden>
+                    <button data-chat-source="portage" role="tab">Portage 消息</button
+                    ><button data-chat-source="native" role="tab">原生记录</button>
+                  </div>
+                </div>
                 <div id="messages" class="messages" aria-live="polite"></div>
               </section>
               <section id="flowView" class="flow-view" aria-label="信息流监控" hidden>
@@ -149,7 +160,7 @@
                       ></canvas>
                       <div id="graphNodes" class="graph-nodes"></div>
                       <div class="graph-legend">
-                        实线 · 显式关系<span>粒子 · 在途 Delivery</span>
+                        <span class="legend-solid">实线 · 显式投递</span><span class="legend-dashed">虚线 · 推断回应（因果父消息，无投递）</span><span>粒子 · 在途 Delivery</span>
                       </div>
                     </div>
                   </div>
@@ -181,6 +192,7 @@
                 placeholder="发一条消息，或 @ 一个成员…"
                 aria-label="消息正文"
               ></textarea>
+              <div id="wakePreview" class="wake-preview" aria-live="polite"></div>
               <div id="mentionMenu" class="mention-menu" hidden></div>
               <div id="attachmentPreview" class="attachment-preview" hidden></div>
               <div class="composer-bottom">
@@ -221,16 +233,25 @@
         ><button data-scope="room" class="selected">房间 collaboration.md</button>
       </div>
       <p class="dialog-description" id="rulesDescription"></p>
-      <textarea id="rulesEditor" spellcheck="false" aria-label="Markdown 规则正文"></textarea>
+      <div class="rules-editor-wrap">
+        <textarea id="rulesEditor" spellcheck="false" aria-label="Markdown 规则正文"></textarea>
+        <button type="button" id="insertFrontmatter" class="text-button insert-frontmatter">＋ 插入策略头</button>
+      </div>
+      <div id="rulesPolicy" class="rules-policy" aria-live="polite"></div>
       <div class="rule-options">
         <label
-          >自动轮次上限<input id="roundBudget" type="number" min="1" max="100" value="4" /></label
+          >自动轮次<input id="roundBudget" type="number" min="1" max="100" value="4" /></label
         ><label
           >每分钟 agent 消息<input id="messageBudget" type="number" min="1" max="1000" value="12"
+        /></label
+        ><label
+          >活跃席位<input id="seatBudget" type="number" min="1" max="20" value="2" /></label
+        ><label
+          >单链路唤醒<input id="wakeupBudget" type="number" min="1" max="1000" value="20"
         /></label>
       </div>
       <footer>
-        <span id="rulesValidation">正文下一次 query 生效，预算下一次检查生效</span
+        <span id="rulesValidation">策略与预算发布后立即生效 · 正文下一次 query 生效</span
         ><button id="publishRules" class="button send-button">发布规则</button>
       </footer>
     </dialog>
@@ -257,7 +278,7 @@
         </header>
       </form>
       <p class="dialog-description">
-        Daemon 扫描本机 Codex / Claude CLI 进程。登记后保留原生身份，可加入房间或直接对话。
+        Daemon 读取本机 Codex / Claude 的会话记录。登记后保留原生身份：原生回合会话可被自动唤醒，其余经文件收件箱投递。
       </p>
       <div id="discoverOptions"></div>
     </dialog>
@@ -286,6 +307,14 @@
         <p id="nameDescription" class="dialog-description"></p>
         <footer><button type="submit" class="button send-button">确认</button></footer>
       </form>
+    </dialog>
+    <dialog id="palette" class="palette" aria-label="命令面板">
+      <div class="palette-input">
+        <span class="palette-glyph">⌘</span
+        ><input id="paletteInput" autocomplete="off" spellcheck="false" placeholder="跳转到房间、会话，或执行一个操作…" aria-controls="paletteList" /><kbd>esc</kbd>
+      </div>
+      <div id="paletteList" class="palette-list" role="listbox"></div>
+      <footer><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>↵</kbd> 执行</span><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 切换视图</span><span><kbd>/</kbd> 写消息</span></footer>
     </dialog>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script type="module" src="/src/main.ts"></script>

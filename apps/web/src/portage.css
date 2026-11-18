@@ -2,27 +2,39 @@
 
 /* connection */
 .local-dot {
-  transition:
-    background 0.3s ease,
-    box-shadow 0.3s ease;
-  box-shadow: 0 0 0 0 #67ab9155;
-  animation: dot-breathe 2.8s ease-in-out infinite;
+  position: relative;
+  transition: background 0.3s ease;
+}
+/* The breathing ring is a scaled pseudo-element: transform and opacity composite, a box-shadow would repaint. */
+.local-dot:after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: inherit;
+  animation: dot-breathe 2.8s ease-out infinite;
+  will-change: transform, opacity;
 }
 .local-dot.syncing {
   background: #d1a25f;
-  animation: none;
 }
 .local-dot.offline {
   background: #b98676;
+}
+.local-dot.syncing:after,
+.local-dot.offline:after {
   animation: none;
+  opacity: 0;
 }
 @keyframes dot-breathe {
-  50% {
-    box-shadow: 0 0 0 4px #67ab9100;
+  0% {
+    transform: scale(1);
+    opacity: 0.45;
   }
-  0%,
+  70%,
   100% {
-    box-shadow: 0 0 0 0 #67ab9144;
+    transform: scale(2.4);
+    opacity: 0;
   }
 }
 .live-tag {
@@ -79,9 +91,6 @@
     0 0 0 2px #8fb5a3,
     0 20px 30px #52634a10;
 }
-.workstation {
-  transition: transform 0.25s ease;
-}
 .workstation:hover .desk,
 .workstation:hover .monitor {
   translate: 0 -2px;
@@ -112,9 +121,9 @@
 }
 .delivered-tag {
   position: absolute;
-  left: 50%;
-  top: -6px;
-  transform: translate(-50%, 6px);
+  left: 97px;
+  top: 12px;
+  transform: translateY(6px);
   font-size: 8px;
   font-family: var(--mono);
   color: #a86f43;
@@ -132,17 +141,12 @@
 }
 .workstation.receiving .delivered-tag {
   opacity: 1;
-  transform: translate(-50%, -4px);
+  transform: none;
 }
 @keyframes agent-perk {
   40% {
     transform: translateY(-5px);
   }
-}
-.workstation.waiting_human .state-pill {
-  color: #7d6aa0;
-  border-color: #ddd5ea;
-  background: #f4f0fa;
 }
 .workstation.offline,
 .workstation.unknown {
@@ -151,9 +155,6 @@
 .workstation.offline .screen-lines,
 .workstation.unknown .screen-lines {
   opacity: 0.1;
-}
-.session-dot.waiting_human {
-  background: #9c8bc0;
 }
 .session-dot.dormant {
   background: #b8c2b5;
@@ -197,9 +198,9 @@
 }
 .read-tag {
   position: absolute;
-  left: 50%;
-  top: -6px;
-  transform: translate(-50%, 6px);
+  left: 97px;
+  top: 12px;
+  transform: translateY(6px);
   font-size: 8px;
   font-family: var(--mono);
   color: #3f7f68;
@@ -217,7 +218,13 @@
 }
 .workstation.just-read .read-tag {
   opacity: 1;
-  transform: translate(-50%, -4px);
+  transform: none;
+}
+/* tags sit beside the monitor, clear of the label, on the side the top-row bubble does not use */
+.workstation.row-top.col-left .delivered-tag,
+.workstation.row-top.col-left .read-tag {
+  left: auto;
+  right: 97px;
 }
 .workstation.just-read .monitor {
   box-shadow:
@@ -296,13 +303,23 @@
   border-bottom: 1px solid #e6dfd2;
   transform: translateX(-50%) rotate(45deg);
 }
+/* the door sits under the bottom-left station, so the user's bubble opens right, into the floor between stations */
 .office-door .speech {
-  bottom: calc(100% + 10px);
+  left: calc(100% + 16px);
+  bottom: 2px;
+  max-width: 160px;
+  transform: none;
   background: #273d32;
   border-color: #273d32;
   color: #eef4ea;
 }
+.office-door .speech.pop {
+  animation: speech-side 0.36s cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
+}
 .office-door .speech:after {
+  left: -5px;
+  bottom: 8px;
+  transform: rotate(135deg);
   background: #273d32;
   border-color: #273d32;
 }
@@ -452,9 +469,6 @@ button.board-item:hover b {
 }
 
 /* mention menu */
-.composer {
-  position: relative;
-}
 .mention-menu {
   position: absolute;
   left: 18px;

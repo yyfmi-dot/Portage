@@ -1,12 +1,16 @@
 import type {
+
   Artifact,
   BusEvent,
   ContextSnapshot,
   Conversation,
   Delivery,
   DeliveryReceipt,
+  DiscoveredEndpoint as AdapterEndpoint,
   Membership,
   Message,
+  NativeEvent,
+  NativeSyncCheckpoint,
   Participant,
   PolicyDocument,
   RoomPolicy,
@@ -16,7 +20,13 @@ import type {
 
 export type ConversationView = Conversation & {
   policy?: RoomPolicy;
-  state?: { paused: boolean; rounds: number; policyRevision: string };
+  state?: {
+    paused: boolean;
+    rounds: number;
+    policyRevision: string;
+    activeTraceId?: string;
+    traceRounds?: Record<string, number>;
+  };
   document: PolicyDocument | null;
 };
 
@@ -27,24 +37,26 @@ export type Snapshot = {
   sessions: Session[];
   participants: Participant[];
   memberships: Membership[];
+  runtimes: Record<string, SessionRuntime>;
+  /** Per conversation: where the loaded window starts and whether older messages exist before it. */
+  history: Record<string, { hasMore: boolean; fromSeq?: number }>;
+  artifacts: Artifact[];
+  nativeCheckpoints: Record<string, NativeSyncCheckpoint>;
+  events: BusEvent[];
+  lastEventSeq: number;
+} & HistorySlice;
+
+/** Messages with their deliveries, receipts and context metadata (the compiled text is fetched on demand). */
+export type HistorySlice = {
   messages: Message[];
   deliveries: Delivery[];
   receipts: DeliveryReceipt[];
-  runtimes: Record<string, SessionRuntime>;
-  contextSnapshots: Record<string, ContextSnapshot>;
-  artifacts: Artifact[];
-  events: BusEvent[];
-  lastEventSeq: number;
+  contexts: Record<string, ContextMeta>;
 };
 
-export type DiscoveredEndpoint = {
-  provider: string;
-  harness: string;
-  host: string;
-  nativeSessionId: string;
-  displayName: string;
-  registered: boolean;
-};
+export type ContextMeta = Omit<ContextSnapshot, "query">;
+
+export type DiscoveredEndpoint = AdapterEndpoint & { registered: boolean };
 
 // Same-origin in Vite dev (proxy); override for a remote daemon.
 export const API_BASE: string = import.meta.env.VITE_PORTAGE_API ?? "";
@@ -74,7 +86,19 @@ export const api = {
     harness: string;
     nativeIdentity: string;
     displayName: string;
+    adapterId?: string;
+    workdir?: string;
   }) => post<Session>("/api/sessions", input),
+  confirmBinding: (id: string) => post<{ deliveries: Delivery[] }>(`/api/sessions/${id}/confirm-binding`),
+  interrupt: (id: string) => post<{ interrupted: boolean }>(`/api/sessions/${id}/interrupt`),
+  native: (id: string, limit = 200) =>
+    request<{ events: NativeEvent[]; checkpoint: NativeSyncCheckpoint | null }>(`/api/sessions/${id}/native?limit=${limit}`),
+  context: (deliveryId: string) => request<ContextSnapshot>(`/api/deliveries/${deliveryId}/context`),
+  cancelDelivery: (deliveryId: string) => post<Delivery>(`/api/deliveries/${deliveryId}/cancel`),
+  history: (conversationId: string, beforeSeq: number, limit = 50) =>
+    request<HistorySlice & { hasMore: boolean }>(
+      `/api/conversations/${conversationId}/messages?beforeSeq=${beforeSeq}&limit=${limit}`,
+    ),
   updateSession: (id: string, input: { displayName?: string; archived?: boolean }) =>
     post<Session>(`/api/sessions/${id}`, input),
   setCommunication: (id: string, enabled: boolean) =>
@@ -89,7 +113,13 @@ export const api = {
     post<{ paused: boolean; deliveries: Delivery[] }>(`/api/rooms/${roomId}/pause`, { paused }),
   publishRoomPolicy: (
     roomId: string,
-    input: { markdown: string; maxAutoRounds: number; agentMessagesPerMinute: number },
+    input: {
+      markdown: string;
+      maxAutoRounds?: number;
+      agentMessagesPerMinute?: number;
+      maxConcurrent?: number;
+      maxWakeupsPerTrace?: number;
+    },
   ) => post<{ document: PolicyDocument; policy: RoomPolicy }>(`/api/rooms/${roomId}/policy`, input),
   publishGlobalPolicy: (markdown: string) => post<PolicyDocument>("/api/policy/global", { markdown }),
   joinRoom: (roomId: string, participantId: string) =>
