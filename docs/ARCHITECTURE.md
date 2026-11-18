@@ -1,6 +1,6 @@
 ﻿# Portage 架构设计方案 v1.0
 
-更新于 2026-11-17。本方案为第一版冻结架构，与 PRODUCT / DOMAIN / UX / MVP 及 HTML 原型对齐。覆盖跨来源会话、房间协作和个人到团队的演进。默认参数是可调建议，性能数字是待验证目标。当前实现：TypeScript 单体 Daemon（MemoryBus + SQLite 快照 + EventLog/SSE）、CLI 进程发现与 FileInbox 注入、MCP 桥接（agent 读取并产生 `agent_ack`、回复沿用 trace、报告忙闲）、正式 Web UI；PTY / IDE / App 原生注入待实现。
+更新于 2026-11-18。本方案为第一版冻结架构，与 PRODUCT / DOMAIN / UX / MVP 及 HTML 原型对齐。覆盖跨来源会话、房间协作和个人到团队的演进。默认参数是可调建议，§10 附实测数据。当前实现：TypeScript 单体 Daemon（MemoryBus + SQLite 快照 + EventLog/SSE）、Codex / Claude Code 原生回合适配器（会话记录发现、headless resume 提交、原生记录回读与关联）、CLI 进程发现与 FileInbox 注入、MCP 桥接（agent 读取并产生 `agent_ack`、回复沿用 trace、报告忙闲）、正式 Web UI；向交互中的 PTY / IDE / App 直接注入待实现（占用时 held 等待释放）。
 
 图中方括号代表对象或模块，`→` 表示有方向的连接，`↔` 表示双向通信，分叉表示独立去向。箭头旁标注传递的内容或触发条件；部署在同一进程内的模块也保持这些接口边界。
 
@@ -238,6 +238,17 @@ Adapter 提供写入字节、提交输入、原生消息确认等分层凭据。
 
 每个连接中的 session 声明读取、写入、附件及管理能力。产品名称、版本和连接方式通过接入验收确定能力，UI 据此开放操作。连接故障可使写入能力临时降级，同时继续读取已有记录。
 
+**实现（v1.0）· 原生回合**
+
+| 环节 | 当前行为 |
+| --- | --- |
+| 发现 | 读取 Codex `~/.codex/sessions` 与 Claude Code `~/.claude/projects` 的会话记录：原生 ID、工作目录、最近活跃、首条真实用户输入作标题；跳过子 agent 线程与 IDE 注入上下文 |
+| 就绪 | 提交前检查：会话记录被交互式进程打开（Linux 读 `/proc/<pid>/fd`，macOS 用 lsof）或刚被别人写入 → held(`attached`，附占用者)；CLI 不可用 → held(`offline`)；后台 tick 重新检查 |
+| 提交 | 以该会话身份恢复一次 headless 回合，query 走 stdin；临时挂 Portage MCP 供回复；继承会话最近的沙箱 / 网络 / 权限设置。同一会话一把输入锁，不同会话并行，在途回合计入活动席位 |
+| 凭据 | 进程启动 = `submitted`；回读到带消息标记的输入 = `native_confirmed`（同时核对 `uncertain`）；agent 经 MCP 读取或回复 = `agent_ack` |
+| 回读 | 回合结束后按游标增量读取：输入 / 输出 / 回合边界存为 NativeEvent，关联 exact（消息标记）/ inferred（同回合输出）/ unknown；读取失败保存在同步游标上，UI 显示回读缺口 |
+| 失败与控制 | 回合失败原因写入会话状态并在 UI 显示；可中断运行中的回合；改绑原生身份后 epoch +1，排队项 held(`identity_changed`)，确认后放行 |
+
 ## 5. 房间、统筹路由和唤醒
 
 房间包含成员、thread、协作约定、默认入口、订阅与策略。拖入或选择添加 session 调用成员管理 API；退出调用离开 API，写入 `Membership.leftAt`，活动成员列表移除该身份。退出后该 session 不再接收本房间新的自动 Delivery；进行中的 Delivery 进入 held/cancelled 并保留原因。历史是否仍可读由 `historyScope` 决定。一个 session 可以加入多个房间，每次读写与投递携带具体 room。
@@ -387,6 +398,8 @@ budget:
 
 上述参数用于初始验证，可按房间调整。界面「2/4 自动轮次」即当前 `rounds` / `max_auto_rounds`。
 
+**实现（v1.0）**：发布房间 collaboration.md 时，服务端用同一个解析器（`@portage/core` 的 `parsePolicyDocument`）校验策略头：只接受上面列出的键，未知键、越界值、`wake.coordinator` 不是当前成员（可写 participant id、session id 或别名）都会让整份发布失败，策略与 revision 均不变。校验通过后先应用唤醒模式与统筹者，再应用预算，最后发布 revision；策略头不进入 query，只有正文作为约束与指导注入。UI 编辑器在输入时用同一解析器实时显示「将执行的策略」或全部错误。全局 PORTAGE.md 的策略头不执行。
+
 | 变更 | 生效时机 |
 | --- | --- |
 | 权限、开关、预算、统筹者 | 原子发布 revision 后，下一次读写或投递检查立即使用 |
@@ -416,6 +429,16 @@ budget:
 预算耗尽后保留持久记录，自动唤醒转为可恢复等待。等待原因包括 busy、disabled、room_paused、rate_limited、round_budget、offline、permission_changed、identity_changed。
 
 活动席位依据自动 turn 与运行端完成信号计数。失联时转 unknown，租约超时可回收调度席位，原生输入锁仍按绑定与运行信号保护。工作状态来自宿主 busy 或 agent 进度上报，耗时分别统计排队、原生运行和通信等待。
+
+**实现（v1.0）**
+
+| 机制 | 当前行为 |
+| --- | --- |
+| 自动轮次 | 按 trace 计数（`traceRounds`），一条讨论刷屏不会消耗另一条的预算；用户在某条 trace 发言只重置该 trace |
+| 每分钟消息 | 超出时 held(reason=`budget`)，记录 `nextAttemptAt`（窗口最早一条消息过期的时刻）；Daemon 后台 tick 在窗口重开后自动放行 |
+| 单链路唤醒 | 同一 trace 上 agent 引发的 Delivery 超过 `max_wakeups_per_trace` 时 held(reason=`wakeup_budget`)；调高上限后按序放行 |
+| 活动席位 | 房间内宿主报告 running 的成员数（不含接收方）达到 `max_concurrent` 时，agent 引发的投递保持 queued(reason=`seats`)；成员报告 idle / waiting_human 时空出席位并按序投递。用户消息不受席位限制 |
+| 合并窗口 | `batch_window_ms` 已可配置并持久保存，尚未执行：FileInbox 没有唤醒动作可合并（agent 经 MCP 自行读取）；原生回合是真实的唤醒动作，但目前每份投递一个回合，按序串行。把窗口内多条合成一个回合（逐条保留标记与凭据）是下一步 |
 
 ## 8. 同步、CRUD 与内容
 
@@ -465,7 +488,7 @@ Message.parts 支持 text、markdown、image、audio、video、json、artifact_r
 
 原生记录增量读取。UI 按 seq 订阅、分页和虚拟列表，断线续传。图谱返回聚合节点与选定 trace，动画帧只更新已有粒子位置，页面隐藏时停绘。
 
-参考机器为 8 个逻辑核心、16 GB RAM、NVMe。以下为待实测工程目标。
+参考机器为 8 个逻辑核心、16 GB RAM、NVMe。以下为工程目标，实测见表后。
 
 | 指标 | 初始目标 |
 | --- | --- |
@@ -480,6 +503,23 @@ Message.parts 支持 text、markdown、image、audio、video、json、artifact_r
 | 稳定性 | 8 小时断连、积压、恢复和配置变更模拟 |
 
 另测慢接收方公平性、fan-out、文件传输、日志截断、提交后失联及重启。报告硬件、载荷、接收方数量、持久化设置、p50 / p95 / p99 和错误率。
+
+**实测（2026-11-18）**：Apple M5 · 10 逻辑核心 · 24 GB · macOS 26.3 · Node 24；SQLite WAL + synchronous=FULL；50 session、10 房间、10 万条历史（3 万份投递），每条 2 KiB × 10 接收方。复现：`NODE_OPTIONS=--expose-gc npx tsx scripts/bench.ts 100000`。
+
+| 指标 | 实测 | 目标 |
+| --- | --- | --- |
+| 持久接收（Bus 内 accept + 落盘） | p50 0.9 · p95 3.4 · p99 4.5 ms | p95 < 50 ms |
+| 持久接收（HTTP 往返） | p50 2.4 · p95 5.5 · p99 10.6 ms | — |
+| 短突发 2000 条 | 255 ms，约 7.9k 条/秒 | 跟上 200 条/秒 |
+| 事件 → SSE 客户端 | p50 0.5 · p95 0.8 · p99 2.9 ms | — |
+| 事件 → 浏览器画面（含 90 ms 合并刷新） | 约 110 ms | p95 < 200 ms |
+| 房间最近 100 条 | p95 < 0.1 ms | p95 < 100 ms |
+| UI 起始快照 | 1.9 MB · 10 ms（HTTP 3.7 MB · 37 ms），只随窗口与在途投递增长，不随历史增长；更早的历史与编译正文按需取 | — |
+| 重启加载 | 707 ms | — |
+| daemon 堆（加载后 GC） | 197 MB（消息 39 MB、投递 8 MB、编译上下文 40 MB） | < 300 MB |
+| 画布 | 有运动时约 30 fps（统筹派发线流动、在途信封）；静止房间 0 次绘制，空闲脚本 < 1 ms/s；页面隐藏或 reduced-motion 时停绘 | ≥ 30 fps |
+
+UI 的环境动效（光影、云、呼吸点）只动 transform / opacity 并独立成层。无 GPU 的 headless Chrome 无法验证合成器卸载（每个动画都按帧触发样式计算），需在真实浏览器里用性能面板确认。
 
 最高层 MD 每次加入 query 会增加上下文体积。记录编译字节数及宿主提供的 token 数据，允许预览实际输入。超过配置上限时展示原因，由用户缩减文档或调整上限。模型耗时与通信耗时分别测量。
 

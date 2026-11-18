@@ -1,6 +1,6 @@
 ﻿# Portage 领域模型 v1.0
 
-与 ARCHITECTURE.md 共同定义 v1.0 冻结模型；已实现：Session/Participant/Conversation/Membership/RoomPolicy/Message/Delivery/Receipt/PolicyDocument/ContextSnapshot/Artifact/Event 及 SQLite 快照持久化；NativeBinding 多入口、Thread、Subscription、NativeEvent 待实现。
+与 ARCHITECTURE.md 共同定义 v1.0 冻结模型；已实现：Session/Participant/Conversation/Membership/RoomPolicy/Message/Delivery/Receipt/PolicyDocument/ContextSnapshot/Artifact/Event/NativeEvent/NativeSyncCheckpoint 及 SQLite 快照持久化；NativeBinding 多入口、Thread、Subscription 待实现（当前一个 Session 绑定一个原生身份与适配器，以 bindingEpoch 记录改绑代次）。
 
 ## 身份、来源与连接
 
@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | Workspace | id、name、ownerId、policyDocumentId | 个人版默认工作区，团队版授权范围 |
 | Principal | id、kind、ownerId、delegation | 由认证或本地可信连接确定的调用者 |
-| Session | id、workspaceId、provider、harness、nativeIdentity、displayName、ownerId、communicationEnabled、archivedAt | 跨重启保持的原生会话身份 |
+| Session | id、workspaceId、provider、harness、nativeIdentity、displayName、ownerId、communicationEnabled、archivedAt、adapterId?、workdir?、bindingEpoch | 跨重启保持的原生会话身份；adapterId 决定投递方式（原生回合 / 缺省 FileInbox） |
 | Participant | id、workspaceId、kind、sessionId?、userId? | 消息与成员关系中的身份 |
 | Endpoint | id、deviceId、kind、host、adapterId、capabilities | 当前可连接的入口 |
 | NativeBinding | id、sessionId、endpointId、nativeSessionId、epoch、state、activeForDelivery | 原生绑定与活动投递入口 |
@@ -107,6 +107,8 @@ DeliveryAttempt 记录每次尝试。DeliveryReceipt 保存 proofLevel written /
 NativeEvent 保存 sessionId、adapterId、nativeEventId、nativeCursor、nativeTime、ingestedAt、parts、correlatedMessageId?、correlation exact / explicit / inferred / unknown。
 
 NativeSyncCheckpoint 保存 sourceGeneration、cursor、lastSuccessAt、gap、error。回显、断线补读按来源去重键处理，缺口可查询。
+
+实现（v1.0）：NativeEvent 为 sessionId、adapterId、nativeEventId（去重键）、nativeTime、ingestedAt、kind（input / output / turn_started / turn_completed / turn_failed）、text、correlatedMessageId?、correlatedDeliveryId?、correlation exact / inferred / unknown。exact 来自输入中的 `[原始消息 · v… · id]` 标记，并同时产生该投递的 `native_confirmed` 凭据；inferred 为同一回合内、该输入之后的输出；回合开始即切断关联，避免把宿主自己的输入算到上一条消息上。内存中全部会话合计保留最近 2 万条。NativeSyncCheckpoint 为 sessionId、source（记录文件）、cursor（字节偏移）、lastSuccessAt、error；改绑原生身份时清空游标。Delivery 另有 detail?：适配器给出的暂缓说明（如占用该会话的进程），任何下一次状态迁移都会清除。
 
 PolicyDocument 保存 scope、Markdown、已校验结构化 policy、draftRevision、publishedRevision、hash、updatedBy、publishedAt。EffectivePolicy 从各层约束及当前成员权限计算。
 

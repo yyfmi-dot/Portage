@@ -1,6 +1,6 @@
 # Portage 产品设计 v1.0
 
-2026-11-17 冻结。本文件与 ARCHITECTURE / DOMAIN / UX / MVP 及 `demos/portage-ux-demo.html` 共同构成第一版定稿。本地 Daemon、FileInbox 适配器与正式 UI 已实现，PTY 等原生注入待实现；默认数值可按实测调整，产品边界与对象语义不再随讨论漂移。
+2026-11-17 冻结。本文件与 ARCHITECTURE / DOMAIN / UX / MVP 及 `demos/portage-ux-demo.html` 共同构成第一版定稿。本地 Daemon、Codex / Claude Code 原生回合适配器、FileInbox 适配器、MCP 桥接与正式 UI 已实现，向交互中的 PTY / IDE / App 直接注入待实现；默认数值可按实测调整，产品边界与对象语义不再随讨论漂移。
 
 ## 产品体验
 

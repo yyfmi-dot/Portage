@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="Portage">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8c3a8"/>
+      <stop offset="1" stop-color="#d9a783"/>
+    </linearGradient>
+  </defs>
+  <path d="M34 6h60a28 28 0 0 1 28 28v60a28 28 0 0 1-28 28H13a7 7 0 0 1-7-7V34A28 28 0 0 1 34 6z" fill="url(#tile)"/>  <rect x="35" y="36" width="15" height="66" rx="7.5" fill="#272e31"/>
+  <circle cx="64.5" cy="58.5" r="19" fill="none" stroke="#272e31" stroke-width="15"/>
+  <circle cx="98" cy="96" r="8" fill="#d87243"/>
+</svg>

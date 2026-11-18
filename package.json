@@ -3,12 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13"
+  },
   "workspaces": [
     "packages/*",
     "apps/*"
   ],
   "scripts": {
-    "test": "npm test -w @portage/core && npm test -w @portage/adapters && npm test -w @portage/daemon && npm test -w @portage/mcp",
+    "test": "node scripts/test-all.mjs",
     "mcp:config": "node packages/mcp/bin/portage-mcp.mjs --print-config",
     "typecheck": "tsc -p tsconfig.json && tsc -p apps/web/tsconfig.json",
     "test:core": "npm test -w @portage/core",
