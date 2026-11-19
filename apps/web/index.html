@@ -34,6 +34,10 @@
           <span>Sessions</span><button id="createSession" aria-label="Find local sessions">＋</button>
         </div>
         <div id="sessionTree" class="session-tree"></div>
+        <details id="archivedSessions" class="archived-sessions" hidden>
+          <summary><span>Archived</span><small id="archivedCount"></small></summary>
+          <div id="archivedList" class="archived-list"></div>
+        </details>
         <div class="sidebar-footer">
           <span class="local-dot" id="connectionDot"></span><span id="connectionLabel">Connecting to the local service…</span
           ><button id="reconnect" title="Reconnect to the local service">Refresh</button>
@@ -285,6 +289,25 @@
       <p class="dialog-description" id="queryDescription"></p>
       <div class="query-meta" id="queryMeta"></div>
       <pre id="queryPreview"></pre>
+    </dialog>
+    <dialog id="fileDialog" class="dialog query-dialog file-dialog">
+      <form method="dialog">
+        <header>
+          <div>
+            <span class="room-eyebrow">Shared file</span>
+            <h2 id="fileTitle">File</h2>
+          </div>
+          <button class="dialog-close" aria-label="Close preview">×</button>
+        </header>
+      </form>
+      <div class="query-meta" id="fileMeta"></div>
+      <div class="file-versions" id="fileVersions"></div>
+      <div class="file-body" id="fileBody"></div>
+      <footer class="file-actions">
+        <button type="button" class="button secondary" id="fileCopyPath">Copy path</button
+        ><a class="button secondary" id="fileDownload" download>Download</a
+        ><a class="button send-button" id="fileOpen" target="_blank" rel="noopener noreferrer">Open in new tab ↗</a>
+      </footer>
     </dialog>
     <dialog id="nameDialog" class="dialog name-dialog">
       <form id="nameForm">

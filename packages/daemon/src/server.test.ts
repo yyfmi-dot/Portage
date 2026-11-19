@@ -142,6 +142,17 @@ describe("daemon HTTP API L4 closed loop", () => {
     });
     expect(artifact.json.byteSize).toBe(8);
     expect(readFileSync(artifact.json.storageKey, "utf8")).toBe("# review");
+    const content = await fetch(`${base}/api/artifacts/${artifact.json.id}/content`);
+    expect(content.status).toBe(200);
+    expect(content.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(content.headers.get("content-security-policy")).toBe("sandbox");
+    expect(content.headers.get("content-disposition")).toBe("inline; filename*=UTF-8''review.md");
+    expect(await content.text()).toBe("# review");
+    expect((await fetch(`${base}/api/artifacts/nope/content`)).status).toBe(404);
+    const untyped = await post("/api/artifacts", { name: "count.py", contentBase64: Buffer.from("print(1)").toString("base64") });
+    expect(untyped.json.mime).toBe("text/plain");
+    const shown = await fetch(`${base}/api/artifacts/${untyped.json.id}/content`);
+    expect(shown.headers.get("content-type")).toBe("text/plain; charset=utf-8");
     const withFile = await post("/api/conversations/room_dev/send", {
       text: "附上评审",
       artifactIds: [artifact.json.id],

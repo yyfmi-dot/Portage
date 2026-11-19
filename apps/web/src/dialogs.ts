@@ -1,9 +1,9 @@
 import { PolicyFrontmatterError, parsePolicyDocument } from "@portage/core";
-import type { ContextSnapshot, ParsedPolicyDocument } from "@portage/core";
+import type { Artifact, ContextSnapshot, ParsedPolicyDocument } from "@portage/core";
 import { api, type DiscoveredEndpoint } from "./api.js";
 import { $, ui, model, session, room } from "./state.js";
 import { providerLabel, hostLabel } from "./model.js";
-import { escapeHtml, toast, initial, modeLabel, formatBytes, setHtml, timeLabel } from "./format.js";
+import { escapeHtml, toast, initial, modeLabel, formatBytes, setHtml, timeLabel, senderName } from "./format.js";
 import { act } from "./data.js";
 
 export function showSnapshot(snapshot: ContextSnapshot, title: string, description: string) {
@@ -19,6 +19,81 @@ export function showSnapshot(snapshot: ContextSnapshot, title: string, descripti
   $("queryPreview").textContent = snapshot.query;
   const dialog = $("queryDialog") as HTMLDialogElement;
   if (!dialog.open) dialog.showModal();
+}
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
+const TEXT_EXT =
+  /\.(md|markdown|txt|log|csv|tsv|json|jsonl|ya?ml|toml|ini|env|xml|html?|css|scss|[cm]?[jt]sx?|py|rb|go|rs|java|kt|swift|c|h|cc|cpp|hpp|cs|php|sh|zsh|bash|sql|diff|patch|lock|gitignore|dockerfile)$/i;
+const TEXT_PREVIEW_BYTES = 512 * 1024;
+let filePreviewToken = 0;
+
+function previewKind(a: Artifact) {
+  if (a.mime.startsWith("image/") || IMAGE_EXT.test(a.originalName)) return "image";
+  if (a.mime === "application/pdf" || /\.pdf$/i.test(a.originalName)) return "pdf";
+  if (a.mime.startsWith("text/") || /json|xml|yaml|javascript|typescript/.test(a.mime) || TEXT_EXT.test(a.originalName)) return "text";
+  return a.byteSize <= TEXT_PREVIEW_BYTES ? "maybe-text" : "binary";
+}
+
+export async function showArtifact(id: string) {
+  const a = model().artifacts.find((x) => x.id === id);
+  if (!a) return;
+  const versions = model()
+    .artifacts.filter((x) => x.originalName === a.originalName && x.conversationId === a.conversationId)
+    .sort((x, y) => y.version - x.version);
+  const by = a.createdBy === "user" ? "You" : senderName(model().sessionByParticipant.get(a.createdBy) ?? a.createdBy);
+  $("fileTitle").textContent = a.originalName;
+  setHtml(
+    $("fileMeta"),
+    [`v${a.version}`, formatBytes(a.byteSize), a.mime || "unknown type", `by ${by}`, timeLabel(Date.parse(a.createdAt))]
+      .map((x) => `<span>${escapeHtml(x)}</span>`)
+      .join(""),
+  );
+  setHtml(
+    $("fileVersions"),
+    versions.length > 1
+      ? versions
+          .map((v) => `<button class="${v.id === a.id ? "selected" : ""}" data-file-version="${v.id}">v${v.version}<small>${timeLabel(Date.parse(v.createdAt))}</small></button>`)
+          .join("")
+      : "",
+  );
+  const url = api.artifactUrl(a.id);
+  ($("fileOpen") as HTMLAnchorElement).href = url;
+  ($("fileDownload") as HTMLAnchorElement).href = url;
+  ($("fileDownload") as HTMLAnchorElement).download = a.originalName;
+  $("fileCopyPath").dataset.path = a.storageKey;
+  const body = $("fileBody");
+  const token = ++filePreviewToken;
+  const kind = previewKind(a);
+  body.className = `file-body ${kind}`;
+  const dialog = $("fileDialog") as HTMLDialogElement;
+  if (!dialog.open) dialog.showModal();
+
+  if (kind === "image") return setHtml(body, `<img src="${url}" alt="${escapeHtml(a.originalName)}" />`);
+  if (kind === "pdf") return setHtml(body, `<iframe src="${url}" title="${escapeHtml(a.originalName)}"></iframe>`);
+  if (kind === "binary") return setHtml(body, `<p class="file-note">No inline preview for this type. Open or download it below.</p>`);
+  setHtml(body, `<p class="file-note">Loading…</p>`);
+  try {
+    const text = await api.artifactText(a.id);
+    if (token !== filePreviewToken) return;
+    if (kind === "maybe-text" && text.includes("\u0000")) {
+      body.className = "file-body binary";
+      return setHtml(body, `<p class="file-note">This looks like a binary file. Open or download it below.</p>`);
+    }
+    body.className = "file-body text";
+    const shown = text.length > TEXT_PREVIEW_BYTES ? text.slice(0, TEXT_PREVIEW_BYTES) : text;
+    const lines = shown.split("\n");
+    if (lines.at(-1) === "") lines.pop();
+    setHtml(
+      body,
+      `<pre><code>${lines.map((line) => `<span>${escapeHtml(line) || " "}</span>`).join("")}</code></pre>${
+        shown.length < text.length ? `<p class="file-note">Showing the first ${formatBytes(TEXT_PREVIEW_BYTES)}. Open it for the rest.</p>` : ""
+      }`,
+    );
+  } catch (error) {
+    if (token !== filePreviewToken) return;
+    body.className = "file-body binary";
+    setHtml(body, `<p class="file-note warn">${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`);
+  }
 }
 
 export const BUDGET_INPUTS = [

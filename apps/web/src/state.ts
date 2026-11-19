@@ -173,8 +173,11 @@ export type VEvent = {
   status: string;
   wait: boolean;
 };
+export type ArchivedSession = { id: string; name: string; provider: string; host: string; archivedAt: number };
 export type Model = {
   sessions: VSession[];
+  /** Newest first; kept out of rooms and routing, only listed so they can be restored. */
+  archived: ArchivedSession[];
   rooms: VRoom[];
   messages: VMessage[];
   deliveries: VDelivery[];

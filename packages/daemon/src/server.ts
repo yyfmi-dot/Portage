@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { TUNABLE_BUDGETS, policyDocumentBody, type BusEvent, type Message } from "@portage/core";
 import { createRuntime, historyPage, seedDemoRoom, snapshotForUi, type DaemonRuntime, type RuntimeOptions } from "./runtime.js";
 
@@ -18,6 +18,15 @@ type Handler = (ctx: {
   req: IncomingMessage;
   res: ServerResponse;
 }) => Promise<unknown> | unknown;
+
+/** A non-JSON response body (file content). */
+class RawBody {
+  constructor(
+    readonly content: Buffer,
+    readonly contentType: string,
+    readonly filename: string,
+  ) {}
+}
 
 class HttpError extends Error {
   constructor(
@@ -212,7 +221,7 @@ route("POST", "/api/artifacts", ({ runtime, body }) => {
   writeFileSync(storageKey, content);
   return runtime.bus.createArtifact({
     originalName: name,
-    mime: String(body.mime ?? ""),
+    mime: String(body.mime || guessMime(name)),
     byteSize: content.byteLength,
     hash,
     storageKey,
@@ -220,6 +229,28 @@ route("POST", "/api/artifacts", ({ runtime, body }) => {
     conversationId: body.conversationId ? String(body.conversationId) : undefined,
   });
 });
+route("GET", "/api/artifacts/:id/content", ({ runtime, params }) => {
+  const artifact = runtime.bus.artifacts.get(params[0]!);
+  if (!artifact) throw new HttpError(404, `artifact not found: ${params[0]}`);
+  const path = resolve(artifact.storageKey);
+  if (!path.startsWith(resolve(runtime.paths.artifacts) + sep)) throw new HttpError(403, "artifact is outside the store");
+  if (!existsSync(path)) throw new HttpError(410, `artifact content is gone: ${artifact.originalName}`);
+  const mime = artifact.mime === "application/octet-stream" ? guessMime(artifact.originalName) : artifact.mime;
+  return new RawBody(readFileSync(path), mime, artifact.originalName);
+});
+
+/** Browsers upload many source files with an empty type; without a guess "open" turns into a download. */
+function guessMime(name: string) {
+  const ext = name.toLowerCase().split(".").pop() ?? "";
+  const known: Record<string, string> = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
+    pdf: "application/pdf", json: "application/json",
+  };
+  if (known[ext]) return known[ext];
+  return /^(md|markdown|txt|log|csv|tsv|ya?ml|toml|ini|xml|html?|css|[cm]?[jt]sx?|py|rb|go|rs|java|kt|swift|c|h|cc|cpp|hpp|cs|php|sh|zsh|bash|sql|diff|patch)$/.test(ext)
+    ? "text/plain"
+    : "application/octet-stream";
+}
 
 // ── agent surface (used by @portage/mcp; the session is the caller, never a parameter of trust) ──
 
@@ -432,6 +463,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, runtime: Daemon
     const params = match.m.slice(1).map(decodeURIComponent);
     const result = await match.r.handler({ runtime, params, body, url, req, res });
     if (match.r.mutates) runtime.persist();
+    if (result instanceof RawBody) return sendRaw(res, result);
     return send(res, 200, result ?? { ok: true });
   } catch (error) {
     const status = error instanceof HttpError ? error.status : 400;
@@ -494,6 +526,22 @@ function send(res: ServerResponse, status: number, payload: unknown) {
     "Content-Length": Buffer.byteLength(body),
   });
   res.end(body);
+}
+
+/**
+ * Shared files are untrusted: a sandbox CSP keeps HTML/SVG opened in a tab from running script on
+ * this origin. PDFs are exempt because Chrome refuses to render them in a sandboxed document.
+ */
+function sendRaw(res: ServerResponse, raw: RawBody) {
+  cors(res);
+  res.writeHead(200, {
+    "Content-Type": /^text\/[^;]+$/.test(raw.contentType) ? `${raw.contentType}; charset=utf-8` : raw.contentType,
+    "Content-Length": raw.content.byteLength,
+    "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(raw.filename)}`,
+    ...(raw.contentType === "application/pdf" ? {} : { "Content-Security-Policy": "sandbox" }),
+    "X-Content-Type-Options": "nosniff",
+  });
+  res.end(raw.content);
 }
 
 async function readJson(req: IncomingMessage): Promise<Body> {

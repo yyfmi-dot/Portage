@@ -1,11 +1,13 @@
 import { $, stateLabels, ui, model, room } from "./state.js";
-import { escapeHtml, statusFor, initial, modeLabel, plural } from "./format.js";
+import { escapeHtml, statusFor, initial, modeLabel, plural, sinceLabel } from "./format.js";
+import { api } from "./api.js";
+import { act } from "./data.js";
 import { render } from "./render.js";
 import { selectRoom, selectSession, previewQuery, demoCollaboration } from "./actions.js";
 import { showRules, showDiscover } from "./dialogs.js";
 
 export type Command = { group: string; label: string; hint?: string; glyph: string; keywords?: string; run: () => void };
-const groupOrder = ["Rooms", "Sessions", "Actions", "Views"];
+const groupOrder = ["Rooms", "Sessions", "Actions", "Views", "Archived"];
 let paletteIndex = 0;
 let paletteItems: Command[] = [];
 
@@ -53,6 +55,14 @@ export function commands(): Command[] {
     { group: "Actions", label: "Find local sessions", hint: "Codex and Claude sessions on this computer", glyph: "＋", keywords: "discover register", run: () => void showDiscover() },
     { group: "Actions", label: "Add members", glyph: "＋", keywords: "member join", run: () => $("addMember").click() },
     { group: "Actions", label: "New room", glyph: "＋", keywords: "create room", run: () => $("createRoom").click() },
+    ...model().archived.map((s) => ({
+      group: "Archived",
+      label: `Restore ${s.name}`,
+      hint: `${s.provider} · ${s.host} · archived ${sinceLabel(s.archivedAt)}`,
+      glyph: "↺",
+      keywords: "archived unarchive",
+      run: () => void act(() => api.updateSession(s.id, { archived: false }), `${s.name} is back, with its rooms`),
+    })),
   ];
 }
 

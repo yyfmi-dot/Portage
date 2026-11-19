@@ -1,5 +1,5 @@
 import { $, stateLabels, ui, model, session, room } from "./state.js";
-import { escapeHtml, statusFor, queueFor, plural } from "./format.js";
+import { escapeHtml, statusFor, queueFor, plural, setHtml, sinceLabel } from "./format.js";
 import { renderOffice } from "./office.js";
 import { hostLabel } from "./model.js";
 import { renderChat, renderComposer } from "./chat.js";
@@ -70,6 +70,25 @@ export function renderSidebar() {
       return `<div class="provider-title ${provider.toLowerCase()}"><span class="provider-logo">${provider === "Codex" ? "C›" : "✳"}</span>${escapeHtml(provider)}</div>${groups}`;
     })
     .join("");
+  renderArchived(query);
+}
+
+function renderArchived(query: string) {
+  const all = model().archived;
+  const items = all.filter((x) => `${x.name} ${x.provider} ${x.host}`.toLowerCase().includes(query));
+  const box = $("archivedSessions") as HTMLDetailsElement;
+  box.hidden = !items.length;
+  if (query && items.length) box.open = true;
+  $("archivedCount").textContent = String(items.length);
+  setHtml(
+    $("archivedList"),
+    items
+      .map(
+        (x) =>
+          `<div class="archived-row" title="${escapeHtml(x.name)} · ${x.provider} · ${x.host}"><span class="session-name">${escapeHtml(x.name)}<small>${x.provider} · ${x.host} · ${sinceLabel(x.archivedAt)}</small></span><button data-restore-session="${x.id}" aria-label="Restore ${escapeHtml(x.name)}">Restore</button></div>`,
+      )
+      .join(""),
+  );
 }
 
 export function renderHeader() {

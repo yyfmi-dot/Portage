@@ -12,7 +12,7 @@ import { renderInspector } from "./inspector.js";
 import { renderGraph } from "./flow.js";
 import { bindCanvas, wakeCanvas } from "./canvas.js";
 import { selectRoom, selectSession, sendFromComposer, previewQuery, demoCollaboration } from "./actions.js";
-import { showSnapshot, BUDGET_INPUTS, showRules, validateRules, insertFrontmatter, publishRules, renderMemberOptions, showDiscover, renderDiscover, showNameDialog } from "./dialogs.js";
+import { showArtifact, showSnapshot, BUDGET_INPUTS, showRules, validateRules, insertFrontmatter, publishRules, renderMemberOptions, showDiscover, renderDiscover, showNameDialog } from "./dialogs.js";
 import { bindPalette, openPalette } from "./palette.js";
 
 bindPalette();
@@ -95,7 +95,7 @@ document.addEventListener("click", (event) => {
       ui.selection = { kind: "room", id: ui.roomId };
       ui.inspector = null;
       ui.view = "room";
-      toast(`Archived ${s.name}; room history is kept`, "", {
+      toast(`Archived ${s.name} · restore it any time from Archived in the sidebar`, "", {
         label: "Undo",
         run: () => void act(() => api.updateSession(s.id, { archived: false }), `${s.name} is back`),
       });
@@ -147,12 +147,11 @@ document.addEventListener("click", (event) => {
   } else if (data.loadOlder) {
     void loadOlder(data.loadOlder).then(renderChat);
     renderChat();
-  } else if (data.artifact) {
-    const a = model().artifacts.find((x) => x.id === data.artifact);
-    if (a) {
-      void navigator.clipboard?.writeText(a.storageKey).catch(() => undefined);
-      toast(`${a.originalName} v${a.version} · path copied: ${a.storageKey}`);
-    }
+  } else if (data.artifact) void showArtifact(data.artifact);
+  else if (data.fileVersion) void showArtifact(data.fileVersion);
+  else if (data.restoreSession) {
+    const s = model().archived.find((x) => x.id === data.restoreSession)!;
+    void act(() => api.updateSession(s.id, { archived: false }), `${s.name} is back, with its rooms`);
   } else if (data.register) {
     const e = JSON.parse(data.register) as DiscoveredEndpoint;
     void act(async () => {
@@ -294,6 +293,13 @@ $("nameForm").addEventListener("submit", (event) => {
   void ui.nameAction?.(value);
 });
 $("closeName").addEventListener("click", () => ($("nameDialog") as HTMLDialogElement).close());
+$("fileCopyPath").addEventListener("click", () => {
+  const path = $("fileCopyPath").dataset.path ?? "";
+  void navigator.clipboard?.writeText(path).then(
+    () => toast("Path copied"),
+    () => toast(path),
+  );
+});
 document.addEventListener("dragstart", (event) => {
   const id = (event.target as HTMLElement).closest<HTMLElement>("[data-session]")?.dataset.session;
   if (id) event.dataTransfer?.setData("text/portage-session", id);

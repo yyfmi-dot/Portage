@@ -202,8 +202,14 @@ export function buildModel(s: Snapshot): Model {
     tracksRead: reading.has(d.recipientSessionId),
   }));
 
+  const archived = s.sessions
+    .filter((x) => x.archivedAt)
+    .map((x) => ({ id: x.id, name: x.displayName, provider: providerLabel(x.provider), host: hostLabel(x.host), archivedAt: Date.parse(x.archivedAt!) }))
+    .sort((a, b) => b.archivedAt - a.archivedAt);
+
   const model: Model = {
     sessions,
+    archived,
     rooms,
     messages,
     deliveries,

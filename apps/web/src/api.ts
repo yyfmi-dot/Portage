@@ -150,6 +150,12 @@ export const api = {
   revise: (messageId: string, text: string) => post<Message>(`/api/messages/${messageId}/revise`, { text }),
   uploadArtifact: (input: { name: string; mime: string; contentBase64: string; conversationId?: string; createdBy?: string }) =>
     post<Artifact>("/api/artifacts", input),
+  artifactUrl: (id: string) => `${API_BASE}/api/artifacts/${encodeURIComponent(id)}/content`,
+  artifactText: async (id: string) => {
+    const response = await fetch(api.artifactUrl(id));
+    if (!response.ok) throw new Error(((await response.json().catch(() => ({}))) as { error?: string }).error ?? `${response.status}`);
+    return response.text();
+  },
 };
 
 export function openEventStream(since: number, onEvent: (event: BusEvent) => void, onState: (open: boolean) => void) {

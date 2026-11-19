@@ -34,12 +34,20 @@ export function memberBadge(item: VSession, roomId = ui.roomId) {
   const current = room(roomId);
   return current.mode === "coordinator" && current.coordinator === item.id ? "Lead" : "";
 }
-export const senderName = (id: string) => (id === "user" ? "You" : session(id)?.name ?? "Unknown session");
+export const senderName = (id: string) =>
+  id === "user" ? "You" : session(id)?.name ?? model().archived.find((x) => x.id === id)?.name ?? "Unknown session";
 export const statusFor = (item: VSession) => (item.enabled ? item.execution : "disabled");
 export const queueFor = (id: string) =>
   model().deliveries.filter((d) => d.recipient === id && (d.state === "queued" || d.state === "held"));
 export const timeLabel = (t: number) =>
   new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+export function sinceLabel(t: number) {
+  const minutes = Math.round((Date.now() - t) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 24 * 60) return `${Math.round(minutes / 60)} h ago`;
+  return new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
 export const initial = (item?: VSession) =>
   !item ? "P" : item.provider === "Codex" ? "C›" : item.provider === "Claude" ? "✳" : item.provider[0]!;
 /** "1 member", "3 members"; pass the plural when it is not just word + "s". */
