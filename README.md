@@ -53,7 +53,7 @@ npm run dev:web        # in a second terminal: UI on http://127.0.0.1:5173
 
 Open <http://127.0.0.1:5173>. The UI is currently in Chinese; the original labels are shown in quotes below.
 
-1. **Watch a delivery chain.** In the seeded room, click "▷ 演示协作" (*demo collaboration*). The coordinator dispatches to a member, who replies with an artifact. Every step is a real delivery through the bus.
+1. **Watch a delivery chain.** In the seeded room, click "▶ 看一段演示" (*watch a demo*). The coordinator dispatches to a member, who replies with an artifact. Every step is a real delivery through the bus.
 2. **Add your own sessions.** Click "＋ 登记本机会话" (*register a local session*). Each candidate shows how Portage will reach it (native turn or file inbox), whether it's currently open elsewhere, and its working directory.
 3. **Talk to the room.** Write a message, or `@` a member. Under the box, "将唤醒" (*will wake*) shows who will be woken and why. Open any message to see its proof ladder and the exact query each recipient received.
 

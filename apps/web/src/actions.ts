@@ -97,8 +97,8 @@ export async function previewQuery() {
     const result = await api.preview(conversationId, { text, recipientSessionId });
     showSnapshot(
       result.snapshot,
-      "本次 query 预览",
-      `由 Bus 按接收方 ${senderName(result.recipientSessionId ?? "")} 实际编译，与发送时的组装逻辑一致。原始消息单独保存。`,
+      "它会收到什么",
+      `如果现在发送，${senderName(result.recipientSessionId ?? "")} 会一字不差地收到下面这些：约定、原始消息和回复方式。`,
     );
   });
 }
@@ -114,7 +114,7 @@ export async function demoCollaboration() {
   if (!lead?.enabled || !worker) return toast("请让统筹/发起者与至少一位可写成员开启通信");
   ui.demoRunning = true;
   renderOffice();
-  toast("演示开始 · 每一步都经由真实 Bus 投递到原生收件箱");
+  toast("演示开始：每一步都是真实送达");
   const stamp = Date.now().toString(36);
   try {
     const start = await api.send(current.id, {
@@ -154,7 +154,7 @@ export async function demoCollaboration() {
       causalParentIds: [start.message.id],
       idempotencyKey: `demo_${stamp}_3`,
     });
-    toast("演示完成 · 打开信息流查看完整 Trace");
+    toast("演示完成，去「信息流」看看完整链路");
   } catch (error) {
     toast(error instanceof Error ? error.message : String(error), "error");
   } finally {

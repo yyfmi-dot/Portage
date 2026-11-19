@@ -4,22 +4,24 @@ import type { ContextMeta, HistorySlice, Snapshot } from "./api.js";
 export const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 export const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
 export const stationPositions: Array<[number, number]> = [
-  [43, 28],
-  [76, 28],
-  [43, 76],
-  [76, 76],
+  [43, 27],
+  [76, 27],
+  [43, 72],
+  [76, 72],
   [24, 53],
   [58, 53],
 ];
+/** Where "you" sit in the flow graph, as percentages like the member positions. */
+export const userGraphPosition: [number, number] = [17, 16];
 export const graphPositions: Array<[number, number]> = [
-  [48, 25],
-  [78, 52],
-  [49, 77],
-  [20, 52],
-  [78, 80],
-  [20, 80],
+  [48, 22],
+  [78, 47],
+  [49, 70],
+  [20, 47],
+  [78, 72],
+  [20, 72],
 ];
-export const palette = ["#739181", "#7b96a3", "#c28c71", "#9c91aa", "#a9a48c", "#adab9d", "#8aa39a"];
+export const palette = ["#e2794f", "#5c9bd6", "#e0ab45", "#9079d0", "#4caa86", "#e06f8f", "#47a9bb"];
 export const stateLabels: Record<string, string> = {
   running: "工作中",
   idle: "就绪",
@@ -30,44 +32,44 @@ export const stateLabels: Record<string, string> = {
   unknown: "状态未知",
 };
 export const reasonLabels: Record<string, string> = {
-  busy: "等待原生 session 就绪",
-  disabled: "接收方通信关闭",
+  busy: "它正忙，忙完就送达",
+  disabled: "它关闭了接收消息",
   room_paused: "房间自动通信已暂停",
-  budget: "限速等待 · 每分钟消息预算已满",
-  round_budget: "达到自动轮次上限 · 等你继续",
-  wakeup_budget: "本链路唤醒次数已达上限",
-  seats: "等待空闲席位 · 同时活跃已满",
-  readonly: "当前入口为只读连接",
-  offline: "原生 session 离线",
-  left_room: "已退出房间 · 停止自动投递",
-  attached: "原生会话正被交互式进程占用 · 释放后投递",
-  identity_changed: "原生身份已变更 · 确认绑定后投递",
-  permission_changed: "权限已变化 · 确认后投递",
-  context_too_large: "原始消息超出上下文上限 · 修订消息或调高上限",
+  budget: "这一分钟的消息额度用完了，稍后自动继续",
+  round_budget: "自动讨论到了轮次上限，等你决定是否继续",
+  wakeup_budget: "这条链路的唤醒次数用完了",
+  seats: "同时工作的成员已满，有人空下来就送达",
+  readonly: "这个会话是只读的，无法送入",
+  offline: "会话不在线",
+  left_room: "它已离开房间，不再自动送达",
+  attached: "它正开在一个交互窗口里，关掉后再送达",
+  identity_changed: "会话身份变了，等你确认后送达",
+  permission_changed: "权限有变化，等你确认后送达",
+  context_too_large: "消息太长，超出了上下文上限：请精简，或调高上限",
 };
 /** Short form for chips and the delivery board. */
 export const reasonShort: Record<string, string> = {
-  busy: "等就绪",
+  busy: "等它忙完",
   disabled: "通信关闭",
   room_paused: "房间暂停",
   budget: "限速",
   round_budget: "轮次上限",
   wakeup_budget: "唤醒上限",
-  seats: "等席位",
+  seats: "等空位",
   readonly: "只读",
   offline: "离线",
   left_room: "已退出",
-  attached: "被占用",
-  identity_changed: "待确认身份",
+  attached: "窗口占用",
+  identity_changed: "待你确认",
   permission_changed: "权限变化",
-  context_too_large: "超出上限",
+  context_too_large: "太长",
 };
 export const deliveryStateLabels: Record<string, string> = {
-  queued: "排队",
+  queued: "排队中",
   held: "暂缓",
-  dispatching: "提交中",
-  submitted: "已提交",
-  uncertain: "结果不明 · 回读中",
+  dispatching: "正在送达",
+  submitted: "已送达",
+  uncertain: "结果待核对",
   failed: "失败",
   cancelled: "已取消",
 };

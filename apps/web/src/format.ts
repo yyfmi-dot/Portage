@@ -30,7 +30,7 @@ export const initial = (item?: VSession) =>
   !item ? "P" : item.provider === "Codex" ? "C›" : item.provider === "Claude" ? "✳" : item.provider[0]!;
 export function modeLabel(mode: string) {
   return (
-    { mentions: "仅 @", coordinator: "统筹 · 派发连线", swarm: "Swarm · 无固定连线", manual: "手动唤醒" } as Record<string, string>
+    { mentions: "仅 @ 提及", coordinator: "统筹 · 先交给统筹者派发", swarm: "自由协作 · 谁被 @ 谁回应", manual: "手动 · 只记录不唤醒" } as Record<string, string>
   )[mode] ?? mode;
 }
 
@@ -41,12 +41,12 @@ export function countdownMarkup(at?: number) {
 }
 export function countdownText(at: number) {
   const left = Math.ceil((at - Date.now()) / 1000);
-  return left > 0 ? `${left}s 后自动恢复` : "即将恢复";
+  return left > 0 ? `${left} 秒后自动继续` : "马上继续";
 }
 
 /** Why a delivery is waiting, plus when it will move again if that is known. */
 export function waitMarkup(d: VDelivery) {
-  const label = reasonLabels[d.reason] ?? (d.state === "uncertain" ? "提交结果不明 · 正在回读核对" : "等待投递");
+  const label = reasonLabels[d.reason] ?? (d.state === "uncertain" ? "还不确定送没送到，正在读回它的记录核对" : "等待送达");
   return `${escapeHtml(label)}${d.detail ? ` · ${escapeHtml(d.detail)}` : ""}${d.reason === "budget" ? ` · ${countdownMarkup(d.nextAttemptAt)}` : ""}`;
 }
 

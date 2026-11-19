@@ -11,21 +11,21 @@ import { escapeHtml, senderName, statusFor, timeLabel, initial, modeLabel, richT
 export function predictWake(text: string, target: string): { names: string[]; note: string } {
   if (ui.selection.kind === "session") {
     const s = session(ui.selection.id);
-    return { names: s ? [s.name] : [], note: "私聊 · 直接投递" };
+    return { names: s ? [s.name] : [], note: "私聊，直接送达" };
   }
   const current = room();
-  if (target !== "room") return { names: [session(target)?.name ?? ""], note: "指定成员 · 直接唤醒" };
+  if (target !== "room") return { names: [session(target)?.name ?? ""], note: "只发给它" };
   const mentioned = mentionsIn(text)
     .map((pid) => model().sessions.find((s) => s.participantId === pid)?.name)
     .filter((n): n is string => Boolean(n));
-  if (current.mode === "manual") return { names: [], note: "手动模式 · 只写入历史，不自动唤醒" };
-  if (current.paused) return { names: [], note: "房间已暂停 · 写入历史，恢复后投递" };
-  if (mentioned.length) return { names: mentioned, note: "@ 优先 · 直接唤醒被提及的成员" };
+  if (current.mode === "manual") return { names: [], note: "手动模式，只记录不唤醒" };
+  if (current.paused) return { names: [], note: "房间已暂停，恢复后再送达" };
+  if (mentioned.length) return { names: mentioned, note: "被 @ 的成员会直接收到" };
   if (current.mode === "coordinator") {
     const lead = current.coordinator ? session(current.coordinator)?.name : undefined;
-    return lead ? { names: [lead], note: "统筹模式 · 先到统筹者，由其派发" } : { names: [], note: "统筹模式 · 尚未指定统筹者" };
+    return lead ? { names: [lead], note: "先交给统筹者，由它分派" } : { names: [], note: "还没有指定统筹者" };
   }
-  return { names: [], note: `${current.mode === "swarm" ? "Swarm" : "仅 @"} · 未 @ 任何成员，只写入历史` };
+  return { names: [], note: "没有 @ 任何人，只记在房间里" };
 }
 
 export function visibleMessages() {
@@ -45,22 +45,22 @@ export function deliveriesFor(messageId: string) {
 export function receiptChips(message: VMessage) {
   const deliveries = deliveriesFor(message.id);
   if (!deliveries.length)
-    return `<button class="receipt-row" data-message="${message.id}"><span class="rcpt quiet">写入历史 · 未唤醒成员</span></button>`;
+    return `<button class="receipt-row" data-message="${message.id}"><span class="rcpt quiet">只记在房间里，没有唤醒谁</span></button>`;
   return `<button class="receipt-row" data-message="${message.id}">${deliveries
     .map((d) => {
       const tone = d.ack ? "read" : d.state === "submitted" ? "submitted" : d.state === "failed" ? "failed" : "waiting";
       const label = d.ack
         ? "已读"
         : d.state === "submitted"
-          ? isUnread(d) ? "已投递 · 未读" : "已投递"
+          ? isUnread(d) ? "已送达 · 未读" : "已送达"
           : reasonShort[d.reason] ?? deliveryStateLabels[d.state] ?? d.state;
       return `<span class="rcpt ${tone}"><i></i>${escapeHtml(senderName(d.recipient))}<em>${escapeHtml(label)}</em></span>`;
     })
-    .join("")}<span class="rcpt-more">链路 ↗</span></button>`;
+    .join("")}<span class="rcpt-more">详情 ↗</span></button>`;
 }
 
 export function emptyChat(direct: boolean) {
-  if (direct) return `<div class="empty-state chat-empty"><b>从这里开始一段私聊</b><span>消息直接投递到这个原生 session 的收件箱，保留它原有的身份与工作。</span></div>`;
+  if (direct) return `<div class="empty-state chat-empty"><b>从这里开始一段私聊</b><span>消息会直接送到它那里，它还是原来的它，带着自己的记忆和手上的活。</span></div>`;
   const current = room();
   const lead = current.coordinator ? session(current.coordinator) : undefined;
   const other = current.members.map((id) => session(id)!).find((s) => s.id !== lead?.id);
@@ -69,13 +69,13 @@ export function emptyChat(direct: boolean) {
     other ? `@${other.alias} 请检查一下最近的投递记录，看看有没有结果不明的。` : "",
     "大家各自同步一下进度和阻塞点。",
   ].filter(Boolean);
-  return `<div class="empty-state chat-empty"><b>房间还没有消息</b><span>${escapeHtml(modeLabel(current.mode))}。试试下面的开场，或点「演示协作」看一条完整链路。</span><div class="suggestions">${suggestions
+  return `<div class="empty-state chat-empty"><b>房间还没有消息</b><span>${escapeHtml(modeLabel(current.mode))}。试试下面的开场白，或者先「看一段演示」。</span><div class="suggestions">${suggestions
     .map((s) => `<button data-suggest="${escapeHtml(s)}">${richText(s).replace(/<button[^>]*>|<\/button>/g, "")}</button>`)
     .join("")}</div></div>`;
 }
 
 export function artifactMarkup(item: Artifact) {
-  return `<button class="artifact-card" data-artifact="${item.id}"><span class="artifact-icon">FILE</span><span><b>${escapeHtml(item.originalName)}</b><small>v${item.version} · ${formatBytes(item.byteSize)} · ${escapeHtml(item.createdBy === "user" ? "你" : senderName(model().sessionByParticipant.get(item.createdBy) ?? item.createdBy))}</small></span></button>`;
+  return `<button class="artifact-card" data-artifact="${item.id}"><span class="artifact-icon">▤</span><span><b>${escapeHtml(item.originalName)}</b><small>v${item.version} · ${formatBytes(item.byteSize)} · ${escapeHtml(item.createdBy === "user" ? "你" : senderName(model().sessionByParticipant.get(item.createdBy) ?? item.createdBy))}</small></span></button>`;
 }
 
 /** The direct conversation with a session, once one exists. */
@@ -106,9 +106,9 @@ export function renderChat() {
     button.setAttribute("aria-selected", String(button.dataset.chatSource === (nativeView ? "native" : "portage")));
   $("chatContext").textContent = target
     ? nativeView
-      ? `${target.name} 自己的原生记录 · 只读回读，Portage 不改写`
-      : `与 ${target.name} 的往来 · 私聊与房间中涉及该会话的消息 · 投递到原生收件箱`
-    : `${room().name} · ${room().members.length} 位成员可读 · ${modeLabel(room().mode)}`;
+      ? `${target.name} 自己的会话记录 · Portage 只读不改`
+      : `你和 ${target.name} 的往来，包括房间里和它有关的消息`
+    : `${room().members.length} 位成员都能看到 · ${modeLabel(room().mode)}`;
   const box = $("messages");
   const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
   const switched = box.dataset.view !== `${ui.selection.kind}:${ui.selection.id}:${nativeView}`;
@@ -130,7 +130,6 @@ export function renderChat() {
       messages
         .map((item) => {
           const author = session(item.sender);
-          const where = item.direct ? "私聊" : model().rooms.find((r) => r.id === item.conversationId)?.name ?? "";
           const parent = item.parentId ? byId.get(item.parentId) : undefined;
           const continued = previous?.sender === item.sender && previous.traceId === item.traceId && item.at - previous.at < 5 * 60_000 && !parent;
           const divider = previous && new Date(previous.at).toDateString() !== new Date(item.at).toDateString()
@@ -140,7 +139,7 @@ export function renderChat() {
           const quote = parent
             ? `<button class="reply-quote" data-message="${parent.id}"><b>${escapeHtml(senderName(parent.sender))}</b>${escapeHtml(parent.text.slice(0, 60))}${parent.text.length > 60 ? "…" : ""}</button>`
             : "";
-          return `${divider}<article data-id="${item.id}" class="message ${ui.freshMessages.has(item.id) ? "fresh" : ""} ${continued ? "continued" : ""} ${item.sender === "user" ? "from-user" : ""}" style="--agent-color:${author?.color ?? "#d87243"}"><span class="avatar ${author?.provider === "Claude" ? "claude" : ""} ${item.sender === "user" ? "user" : ""}">${item.sender === "user" ? "你" : initial(author)}</span><div class="message-main"><div class="message-header"><b>${escapeHtml(senderName(item.sender))}</b><span class="message-source">${author ? `${author.provider} / ${author.host}` : "Portage"} · ${escapeHtml(where)}${item.demo ? " · 演示" : ""}</span><time>${timeLabel(item.at)}</time></div>${quote}<div class="message-body">${richText(item.text)}${item.revision > 1 ? ` <small>（修订 v${item.revision}）</small>` : ""}</div>${item.artifacts.map(artifactMarkup).join("")}${receiptChips(item)}<div class="message-actions"><button data-message="${item.id}">查看链路</button>${item.sender === "user" ? `<button data-edit-message="${item.id}">修订</button>` : ""}<button data-hide-message="${item.id}">隐藏记录</button></div></div></article>`;
+          return `${divider}<article data-id="${item.id}" class="message ${ui.freshMessages.has(item.id) ? "fresh" : ""} ${continued ? "continued" : ""} ${item.sender === "user" ? "from-user" : ""}" style="--agent-color:${author?.color ?? "#d87243"}"><span class="avatar ${author?.provider === "Claude" ? "claude" : ""} ${item.sender === "user" ? "user" : ""}">${item.sender === "user" ? "你" : initial(author)}</span><div class="message-main"><div class="message-header"><b>${escapeHtml(senderName(item.sender))}</b><span class="message-source">${author ? `${author.provider} · ${author.host}` : ""}${item.direct ? " · 私聊" : ""}${item.demo ? " · 演示" : ""}</span><time>${timeLabel(item.at)}</time></div>${quote}<div class="message-body">${richText(item.text)}${item.revision > 1 ? ` <small>（修订 v${item.revision}）</small>` : ""}</div>${item.artifacts.map(artifactMarkup).join("")}${receiptChips(item)}<div class="message-actions"><button data-message="${item.id}">送达详情</button>${item.sender === "user" ? `<button data-edit-message="${item.id}">修订</button>` : ""}<button data-hide-message="${item.id}">隐藏</button></div></div></article>`;
         })
         .join("")
     : emptyChat(Boolean(target));
@@ -163,7 +162,7 @@ function nativeEventMarkup(e: NativeEvent) {
   const input = e.kind === "input";
   const headline = input ? inputHeadline(e) : e.text;
   const full = input && headline !== e.text
-    ? `<details><summary>完整 query · 含规则层 · ${formatBytes(new TextEncoder().encode(e.text).length)}</summary><pre>${escapeHtml(e.text)}</pre></details>`
+    ? `<details><summary>它收到的完整内容（含约定）· ${formatBytes(new TextEncoder().encode(e.text).length)}</summary><pre>${escapeHtml(e.text)}</pre></details>`
     : "";
   const body = headline.length > 600
     ? `<details><summary>${escapeHtml(headline.slice(0, 240))}…</summary><pre>${escapeHtml(headline)}</pre></details>`
@@ -186,13 +185,13 @@ function nativeMarkup(sessionId: string) {
   const target = session(sessionId)!;
   const record = ui.native.get(sessionId);
   if (!target.adapterId)
-    return `<div class="empty-state chat-empty"><b>没有可回读的原生记录</b><span>这个会话经文件收件箱投递，由 agent 通过 MCP 读取；读取凭据显示在每条消息的回执上。</span></div>`;
+    return `<div class="empty-state chat-empty"><b>它没有可以读回的会话记录</b><span>这个会话通过收件箱收消息，它用 MCP 来取；有没有读过，看每条消息下面的回执。</span></div>`;
   if (!record) return `<div class="empty-state chat-empty"><b>正在读取原生记录…</b></div>`;
   const cp = record.checkpoint;
   const sync = cp
-    ? `<div class="native-sync ${cp.error ? "gap" : ""}"><span>${cp.error ? `回读缺口 · ${escapeHtml(cp.error)}` : `已同步 · ${cp.lastSuccessAt ? timeLabel(Date.parse(cp.lastSuccessAt)) : "—"}`}</span><code title="${escapeHtml(cp.source)}">${escapeHtml(cp.source.split(/[\\/]/).slice(-2).join("/"))} · 游标 ${cp.cursor}</code></div>`
+    ? `<div class="native-sync ${cp.error ? "gap" : ""}"><span>${cp.error ? `读取中断 · ${escapeHtml(cp.error)}` : `已同步到 ${cp.lastSuccessAt ? timeLabel(Date.parse(cp.lastSuccessAt)) : "—"}`}</span><code title="${escapeHtml(cp.source)}">${escapeHtml(cp.source.split(/[\\/]/).slice(-2).join("/"))} · 游标 ${cp.cursor}</code></div>`
     : "";
-  return `${sync}${record.events.length ? record.events.map(nativeEventMarkup).join("") : `<div class="empty-state chat-empty"><b>还没有原生记录</b><span>投递后，原生 session 的输入、输出与回合边界会出现在这里。</span></div>`}`;
+  return `${sync}${record.events.length ? record.events.map(nativeEventMarkup).join("") : `<div class="empty-state chat-empty"><b>还没有记录</b><span>给它发消息后，它收到了什么、回了什么，都会出现在这里。</span></div>`}`;
 }
 
 export function renderComposer() {
@@ -206,7 +205,7 @@ export function renderComposer() {
     $("composerHint").textContent = !target.enabled
       ? "通信已关闭，可在详情中开启"
       : target.writable
-        ? "提交到这个原生 session 的收件箱"
+        ? "直接送到它那里"
         : "当前入口只读，可查看记录";
     $("contextRevision").textContent = `全局 v${model().globalRevision} · 私聊`;
     ($("messageInput") as HTMLTextAreaElement).placeholder = `发给 ${target.name}…`;

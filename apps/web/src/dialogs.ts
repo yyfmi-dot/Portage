@@ -11,10 +11,10 @@ export function showSnapshot(snapshot: ContextSnapshot, title: string, descripti
   $("queryDescription").textContent = description;
   $("queryMeta").innerHTML = [
     ...snapshot.layers.map((l) => `<span class="layer">${escapeHtml(l)}</span>`),
-    `<span>${snapshot.hash}</span>`,
+    `<span title="内容指纹">${snapshot.hash}</span>`,
     `<span>${formatBytes(snapshot.byteSize)}</span>`,
-    ...(snapshot.dropped ?? []).map((l) => `<span class="warn">超限省略 ${escapeHtml(l)}</span>`),
-    snapshot.overflow ? '<span class="warn">原始消息本身超出上下文上限，未投递</span>' : "",
+    ...(snapshot.dropped ?? []).map((l) => `<span class="warn">超长省略了 ${escapeHtml(l)}</span>`),
+    snapshot.overflow ? '<span class="warn">消息本身就超出了上下文上限，没有送出</span>' : "",
   ].join("");
   $("queryPreview").textContent = snapshot.query;
   const dialog = $("queryDialog") as HTMLDialogElement;
@@ -23,9 +23,9 @@ export function showSnapshot(snapshot: ContextSnapshot, title: string, descripti
 
 export const BUDGET_INPUTS = [
   { id: "roundBudget", key: "maxAutoRounds", label: "自动轮次", min: 1, max: 100 },
-  { id: "messageBudget", key: "agentMessagesPerMinute", label: "每分钟 agent 消息", min: 1, max: 1000 },
-  { id: "seatBudget", key: "maxConcurrent", label: "活跃席位", min: 1, max: 20 },
-  { id: "wakeupBudget", key: "maxWakeupsPerTrace", label: "单链路唤醒", min: 1, max: 1000 },
+  { id: "messageBudget", key: "agentMessagesPerMinute", label: "每分钟 AI 消息", min: 1, max: 1000 },
+  { id: "seatBudget", key: "maxConcurrent", label: "同时工作上限", min: 1, max: 20 },
+  { id: "wakeupBudget", key: "maxWakeupsPerTrace", label: "每条链路唤醒", min: 1, max: 1000 },
 ] as const;
 
 export const FRONTMATTER_LABELS: Record<string, string> = {
@@ -57,8 +57,8 @@ export function showRules(scope: "room" | "global") {
   $("insertFrontmatter").hidden = scope === "global";
   $("rulesDescription").textContent =
     scope === "global"
-      ? `PORTAGE.md v${model().globalRevision} · 每次原生 query 带入这份最高层约定。`
-      : `${current.name} · collaboration.md v${current.revision} · 正文是约束与指导；开头的 YAML 策略头由服务端校验后执行。`;
+      ? `全局约定 v${model().globalRevision}：每个房间、每次送达都会带上它。`
+      : `「${current.name}」的协作约定 v${current.revision}：正文告诉成员怎么配合；开头可选的 YAML 策略头会被校验后直接执行。`;
   for (const button of document.querySelectorAll<HTMLButtonElement>("[data-scope]"))
     button.classList.toggle("selected", button.dataset.scope === scope);
   validateRules();
@@ -110,16 +110,16 @@ export function validateRules(): boolean {
     setHtml(
       out,
       parsed?.hasFrontmatter
-        ? "<b>提示</b><span>全局文档的策略头不会执行，只有正文进入 query。</span>"
-        : "<b>约束与指导</b><span>正文在下一次 query 编译时生效。</span>",
+        ? "<b>提示</b><span>全局约定里的策略头不会执行，只有正文会送给成员。</span>"
+        : "<b>正文</b><span>从下一次送达起生效。</span>",
     );
     return true;
   }
   setHtml(out, effective.length
-    ? `<b>策略头将执行</b>${effective
+    ? `<b>发布后会执行</b>${effective
         .map(([key, value]) => `<span class="policy-chip"><em>${FRONTMATTER_LABELS[key] ?? key}</em>${escapeHtml(key === "wakeMode" ? modeLabel(String(value)) : value)}</span>`)
-        .join("")}<small>策略头中的值优先于下方输入框</small>`
-    : "<b>仅正文</b><span>没有策略头：预算以下方输入为准。点「插入策略头」可把当前策略写进文档、随版本保存。</span>");
+        .join("")}<small>策略头里的值优先于下面的输入框</small>`
+    : "<b>只有正文</b><span>额度以下面的输入为准。点「插入策略头」可以把它们写进文档，跟着版本一起保存。</span>");
   return true;
 }
 
@@ -166,21 +166,21 @@ export async function publishRules() {
         maxWakeupsPerTrace: budget("wakeupBudget"),
       });
     ($("rulesDialog") as HTMLDialogElement).close();
-  }, "已发布 · 策略头与预算立即生效，正文下一次 query 应用");
+  }, "已发布：额度立即生效，正文从下一次送达起使用");
 }
 
 export function renderMemberOptions() {
   $("memberOptions").innerHTML = model()
     .sessions.map((item) => {
       const joined = room().members.includes(item.id);
-      return `<div class="member-option"><span class="avatar ${item.provider === "Claude" ? "claude" : ""}">${initial(item)}</span><span class="member-info"><b>${escapeHtml(item.name)}</b><small>${item.provider} / ${item.host} · ${escapeHtml(item.nativeIdentity)}</small></span><button data-add-session="${item.id}" ${joined ? "disabled" : ""}>${joined ? "已加入" : "加入"}</button></div>`;
+      return `<div class="member-option"><span class="avatar ${item.provider === "Claude" ? "claude" : ""}">${initial(item)}</span><span class="member-info"><b>${escapeHtml(item.name)}</b><small title="${escapeHtml(item.nativeIdentity)}">${item.provider} · ${item.host}</small></span><button data-add-session="${item.id}" ${joined ? "disabled" : ""}>${joined ? "已加入" : "加入"}</button></div>`;
     })
     .join("");
 }
 
 export async function showDiscover() {
   const dialog = $("discoverDialog") as HTMLDialogElement;
-  $("discoverOptions").innerHTML = '<p class="dialog-description">正在扫描本机进程…</p>';
+  $("discoverOptions").innerHTML = '<p class="dialog-description">正在查找这台电脑上的会话…</p>';
   if (!dialog.open) dialog.showModal();
   try {
     const { endpoints } = await api.discover();
@@ -192,8 +192,8 @@ export async function showDiscover() {
 
 function endpointFacts(e: DiscoveredEndpoint) {
   return [
-    e.adapterId ? "原生回合，可自动唤醒" : "文件收件箱，经 MCP 读取",
-    e.attached ? "正被交互式进程占用" : "",
+    e.adapterId ? "可以自动唤醒" : "通过收件箱收消息",
+    e.attached ? "正开在一个窗口里" : "",
     e.workdir ? e.workdir.split("/").slice(-2).join("/") : "",
     e.updatedAt ? `活跃于 ${timeLabel(Date.parse(e.updatedAt))}` : "",
   ].filter(Boolean);
@@ -204,10 +204,10 @@ export function renderDiscover(endpoints: DiscoveredEndpoint[]) {
     ? endpoints
         .map(
           (e) =>
-            `<div class="member-option"><span class="avatar ${e.provider === "claude" ? "claude" : ""}">${providerLabel(e.provider)[0]}</span><span class="member-info"><b>${escapeHtml(e.displayName)}</b><small>${providerLabel(e.provider)} / ${hostLabel(e.host)} · ${escapeHtml(endpointFacts(e).join(" · "))}</small><small class="mono">${escapeHtml(e.nativeSessionId)}</small></span><button data-register='${escapeHtml(JSON.stringify(e))}' ${e.registered ? "disabled" : ""}>${e.registered ? "已登记" : "登记"}</button></div>`,
+            `<div class="member-option"><span class="avatar ${e.provider === "claude" ? "claude" : ""}">${providerLabel(e.provider)[0]}</span><span class="member-info"><b>${escapeHtml(e.displayName)}</b><small title="${escapeHtml(e.nativeSessionId)}">${providerLabel(e.provider)} · ${hostLabel(e.host)} · ${escapeHtml(endpointFacts(e).join(" · "))}</small></span><button data-register='${escapeHtml(JSON.stringify(e))}' ${e.registered ? "disabled" : ""}>${e.registered ? "已登记" : "登记"}</button></div>`,
         )
         .join("")
-    : '<p class="dialog-description">没有发现 Codex / Claude 会话。在本机用 CLI 开始一段会话后再次打开。</p>';
+    : '<div class="dialog-empty"><span class="mascot" aria-hidden="true"><i class="agent-head"></i><i class="agent-body"></i></span><b>还没找到会话</b><p>Portage 会自动发现你在这台电脑上用过的 Codex 和 Claude 会话。</p><ol><li>打开终端，运行 <code>codex</code> 或 <code>claude</code></li><li>随便聊一句，让它留下会话记录</li><li>回到这里，点左侧「会话来源」旁的 ＋</li></ol></div>';
 }
 
 export function showNameDialog(title: string, label: string, initialValue: string, description: string, callback: (value: string) => Promise<void> | void) {

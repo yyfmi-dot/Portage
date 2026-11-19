@@ -1,4 +1,4 @@
-import { $, motionPreference, stationPositions, graphPositions, PACKET_MS, ui, model, room } from "./state.js";
+import { $, motionPreference, stationPositions, graphPositions, userGraphPosition, PACKET_MS, ui, model, room } from "./state.js";
 import { renderOffice } from "./office.js";
 import { renderGraph } from "./flow.js";
 
@@ -27,7 +27,7 @@ export function drawCanvas(canvas: HTMLCanvasElement, kind: "room" | "flow", now
   context.clearRect(0, 0, rect.width, rect.height);
   const current = room();
   const positions = new Map<string, [number, number]>();
-  positions.set("user", kind === "flow" ? [rect.width * 0.18, rect.height * 0.19] : [rect.width * 0.5, rect.height - 14]);
+  positions.set("user", kind === "flow" ? [(rect.width * userGraphPosition[0]) / 100, (rect.height * userGraphPosition[1]) / 100] : [rect.width * 0.5, rect.height - 14]);
   current.members.forEach((id, index) => {
     const percent = (kind === "flow" ? graphPositions : stationPositions)[index % 6]!;
     positions.set(id, [(rect.width * percent[0]) / 100, (rect.height * percent[1]) / 100 + (kind === "room" ? 35 : 0)]);
@@ -59,7 +59,7 @@ export function drawCanvas(canvas: HTMLCanvasElement, kind: "room" | "flow", now
     if (!from || !to) continue;
     const ctrl = curve(from, to);
     context.strokeStyle =
-      edge.kind === "dispatch" ? "#d9a07470" : edge.kind === "explicit" ? (kind === "flow" ? "#9fc2ae99" : "#77927d65") : "#c8b79a70";
+      edge.kind === "dispatch" ? "#d9a07470" : edge.kind === "explicit" ? (kind === "flow" ? "#5f9c7faa" : "#77927d65") : "#c8b79a70";
     context.lineWidth = edge.kind === "explicit" && kind === "flow" ? 1.4 : 1.2;
     context.setLineDash(edge.kind === "inferred" ? [3, 5] : edge.kind === "dispatch" ? [7, 6] : []);
     // dispatch lines flow from the coordinator outward

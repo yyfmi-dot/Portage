@@ -64,7 +64,7 @@ document.addEventListener("click", (event) => {
     void act(async () => {
       await api.leaveRoom(current.id, s.participantId);
       if (ui.inspector?.id === s.id) ui.inspector = null;
-    }, "已退出房间；原生 session 仍在来源树中");
+    }, "已移出房间，它的会话不受影响");
   } else if (data.makeCoordinator) {
     const s = session(data.makeCoordinator)!;
     void act(() => api.setWakeMode(current.id, "coordinator", s.participantId), "已更新统筹路由：派发连线与先唤醒对象已切换");
@@ -72,7 +72,7 @@ document.addEventListener("click", (event) => {
     void act(() => api.markReady(data.readySession!), "已标记就绪，按序检查待投递消息");
   } else if (data.wakeSession) {
     const s = session(data.wakeSession)!;
-    if (!s.enabled || !s.writable) return toast("该 session 当前通信关闭或只读");
+    if (!s.enabled || !s.writable) return toast("它关闭了接收消息，或者是只读的");
     void act(
       () =>
         api.send(current.id, {
@@ -85,7 +85,7 @@ document.addEventListener("click", (event) => {
   } else if (data.directSession) selectSession(data.directSession);
   else if (data.renameSession) {
     const s = session(data.renameSession)!;
-    showNameDialog("重命名会话", "本地显示名称", s.name, "修改 Portage 元数据，保留原生 session 身份。", (name) =>
+    showNameDialog("重命名会话", "本地显示名称", s.name, "只改 Portage 里的显示名，不影响它原来的会话。", (name) =>
       act(() => api.updateSession(s.id, { displayName: name }), "已重命名"),
     );
   } else if (data.archiveSession) {
@@ -105,7 +105,7 @@ document.addEventListener("click", (event) => {
     ui.hidden.add(data.hideMessage);
     localStorage.setItem("portage.hidden", JSON.stringify([...ui.hidden]));
     renderChat();
-    toast("记录已在本地视图隐藏，Bus 历史保留");
+    toast("已在这里隐藏，历史记录仍然保留");
   } else if (data.focusTrace) {
     ui.traceFilter = data.focusTrace;
     ui.view = "flow";
@@ -117,7 +117,7 @@ document.addEventListener("click", (event) => {
       void act(async () =>
         showSnapshot(
           await api.context(d.id),
-          "实际投递 query",
+          "它实际收到的内容",
           `${senderName(d.recipient)} 收到的完整内容 · ${d.receipt?.nativeMessageId ?? "尚未提交"}`,
         ),
       );
@@ -181,6 +181,11 @@ $("roomDropZone").addEventListener("click", () => $("addMember").click());
 $("roomDropZone").addEventListener("keydown", (event) => {
   if (event.key === "Enter") $("addMember").click();
 });
+$("roomEmpty").addEventListener("click", (event) => {
+  const action = (event.target as HTMLElement).closest<HTMLElement>("[data-empty-action]")?.dataset.emptyAction;
+  if (action === "members") $("addMember").click();
+  else if (action === "discover") void showDiscover();
+});
 $("roomRules").addEventListener("click", () => showRules("room"));
 $("globalRules").addEventListener("click", () => showRules("global"));
 $("publishRules").addEventListener("click", () => void publishRules());
@@ -200,7 +205,7 @@ $("wakeMode").addEventListener("change", (event) => {
     mode === "coordinator"
       ? "统筹模式：显示派发连线，用户消息先到统筹者"
       : mode === "swarm"
-        ? "Swarm：无固定连线，默认按 @ 唤醒"
+        ? "自由协作：谁被 @ 谁回应"
         : `已切换为 ${modeLabel(mode)}`,
   );
 });
@@ -261,7 +266,7 @@ $("messageInput").addEventListener("keydown", (event) => {
 });
 $("messageInput").addEventListener("blur", () => setTimeout(() => ($("mentionMenu").hidden = true), 150));
 $("createRoom").addEventListener("click", () =>
-  showNameDialog("新建房间", "房间名称", "", "创建后从来源树拖入成员，或使用添加成员。新房间默认 Swarm。", async (name) => {
+  showNameDialog("新建房间", "房间名称", "", "建好后把左侧的会话拖进来就行。新房间默认是自由协作。", async (name) => {
     try {
       const created = await api.createRoom(name);
       await refresh();
@@ -302,7 +307,7 @@ document.addEventListener("drop", (event) => {
   const s = id ? session(id) : undefined;
   if (!s) return;
   const roomId = target.dataset.dropRoom ?? ui.roomId;
-  if (room(roomId).members.includes(s.id)) return toast("这个 session 已经在房间里");
+  if (room(roomId).members.includes(s.id)) return toast("它已经在房间里了");
   void act(async () => {
     await api.joinRoom(roomId, s.participantId);
     ui.roomId = roomId;
