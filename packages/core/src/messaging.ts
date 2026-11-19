@@ -56,13 +56,6 @@ export type SendResult = {
  * Pure function — persistence and adapter inject happen outside.
  */
 export function acceptMessage(ctx: SendContext): SendResult {
-  const round = nextAutoRound({
-    currentRounds: ctx.currentRounds,
-    maxAutoRounds: ctx.policy.maxAutoRounds,
-    isUserSender: ctx.senderIsUser,
-    isManualWake: Boolean(ctx.isManualWake),
-  });
-
   const wakeTargets =
     ctx.target.kind === "participant"
       ? [ctx.target.id].filter((id) => id !== ctx.senderId)
@@ -74,6 +67,13 @@ export function acceptMessage(ctx: SendContext): SendResult {
           mentionParticipantIds: ctx.mentionParticipantIds ?? [],
           senderIsUser: ctx.senderIsUser,
         });
+  const round = nextAutoRound({
+    currentRounds: ctx.currentRounds,
+    maxAutoRounds: ctx.policy.maxAutoRounds,
+    isUserSender: ctx.senderIsUser,
+    isManualWake: Boolean(ctx.isManualWake),
+    wakesSomeone: wakeTargets.some((id) => ctx.participantSessionId[id]),
+  });
 
   const message: Message = {
     id: `msg_${ctx.idempotencyKey}`,

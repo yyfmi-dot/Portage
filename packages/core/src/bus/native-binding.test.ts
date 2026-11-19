@@ -205,19 +205,23 @@ describe("native input lock and turn execution", () => {
 
   it("dispatches to different sessions concurrently, and an in-flight dispatch already takes an activity seat", async () => {
     const started: string[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
     const { bus } = setup({
       inject: async ({ session }) => {
         started.push(session.id);
+        maxInFlight = Math.max(maxInFlight, ++inFlight);
         await new Promise((r) => setTimeout(r, 120));
+        inFlight -= 1;
         return { ok: true };
       },
     });
     const room = bus.createRoom({ id: "room_c", title: "c", createdBy: "user", wakeMode: "swarm" });
     await bus.joinRoom({ conversationId: room.id, participantId: "p_lead" });
     await bus.joinRoom({ conversationId: room.id, participantId: "p_builder" });
-    const t0 = Date.now();
     const both = await bus.send({ conversationId: room.id, senderId: "user", target: { kind: "room", id: room.id }, text: "两位都看看", mentionParticipantIds: ["p_lead", "p_builder"], idempotencyKey: "cc1", source: "user" });
-    expect(Date.now() - t0).toBeLessThan(220);
+    // overlap, not wall-clock time: a loaded machine must not turn this into a false failure
+    expect(maxInFlight).toBe(2);
     expect(both.deliveries.map((d) => d.state)).toEqual(["submitted", "submitted"]);
 
     await bus.updateRoomPolicy({ conversationId: room.id, maxConcurrent: 1, maxAutoRounds: 10 });

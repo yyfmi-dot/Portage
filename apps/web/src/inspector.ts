@@ -126,6 +126,13 @@ function statusSentence(item: VSession, inRoom: boolean) {
   )[status] ?? stateLabels[status];
 }
 
+/** On a session's own page no room is selected, so list the rooms it is actually in. */
+function roomsRow(item: VSession) {
+  const rooms = model().rooms.filter((r) => r.members.includes(item.id));
+  const names = rooms.map((r) => `${escapeHtml(r.name)}${r.mode === "coordinator" && r.coordinator === item.id ? " · Lead" : ""}`);
+  return `<div class="detail-row"><span>Rooms</span><strong>${names.join("<br>") || "None yet"}</strong></div>`;
+}
+
 export function sessionInspector(item: VSession) {
   const pending = queueFor(item.id);
   const current = room();
@@ -155,7 +162,7 @@ export function sessionInspector(item: VSession) {
       : "",
     `<div class="detail-row"><span>Read receipts</span><strong title="${lastAck ? "It has reported reads over MCP" : "It hasn't reported a read over MCP yet"}">${lastAck ? `Yes · last ${timeLabel(Date.parse(lastAck.observedAt))}` : "None yet"}</strong></div>`,
     `<div class="detail-row"><span>Rules</span><strong>${ruleRow}</strong></div>`,
-    `<div class="detail-row"><span>In this room</span><strong>${isCoordinator ? "Lead" : inRoom ? "Member" : "Not in this room"}</strong></div>`,
+    ui.selection.kind === "session" ? roomsRow(item) : `<div class="detail-row"><span>In this room</span><strong>${isCoordinator ? "Lead" : inRoom ? "Member" : "Not in this room"}</strong></div>`,
   ].join("");
   const queue = pending.length
     ? pending

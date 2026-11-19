@@ -97,6 +97,7 @@ describe("nextAutoRound", () => {
         maxAutoRounds: 4,
         isUserSender: true,
         isManualWake: false,
+        wakesSomeone: true,
       }),
     ).toEqual({ rounds: 0, exceeded: false });
   });
@@ -108,6 +109,7 @@ describe("nextAutoRound", () => {
         maxAutoRounds: 4,
         isUserSender: false,
         isManualWake: false,
+        wakesSomeone: true,
       }),
     ).toEqual({ rounds: 5, exceeded: true });
   });
@@ -119,7 +121,20 @@ describe("nextAutoRound", () => {
         maxAutoRounds: 4,
         isUserSender: false,
         isManualWake: true,
+        wakesSomeone: true,
       }),
     ).toEqual({ rounds: 2, exceeded: false });
+  });
+
+  it("an agent message that wakes nobody is not a round, even at the limit", () => {
+    expect(
+      nextAutoRound({
+        currentRounds: 4,
+        maxAutoRounds: 4,
+        isUserSender: false,
+        isManualWake: false,
+        wakesSomeone: false,
+      }),
+    ).toEqual({ rounds: 4, exceeded: false });
   });
 });

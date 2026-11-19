@@ -399,7 +399,13 @@
   color: var(--muted);
   background: var(--card-strong);
 }
-.wake-name {
+.wake-preview > .wake-name {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--ink);
   font-weight: 600;
   padding: 2px 7px;

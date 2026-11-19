@@ -144,8 +144,8 @@ describe.skipIf(process.platform === "win32")("daemon · native Codex room", () 
     // each member answered what it was given, so every delivery it answered is acknowledged by that reply
     const answered = deliveries.filter((d: Json) => proofs(d.id).includes("agent_ack:reply"));
     expect(answered.length).toBeGreaterThanOrEqual(4);
-    // five agent messages on the trace; the coordinator's last two mention no one and wake no one
-    expect(snap.conversations.find((c: Json) => c.id === room.id).state.rounds).toBe(5);
+    // five agent messages on the trace, three of them wake someone; the coordinator's last two wake no one and are not rounds
+    expect(snap.conversations.find((c: Json) => c.id === room.id).state.rounds).toBe(3);
 
     const lead = await get("/api/sessions/s_codex_th-lead/native");
     const inputs = lead.events.filter((e: Json) => e.kind === "input" && e.correlation === "exact");

@@ -69,7 +69,15 @@ export function waitMarkup(d: VDelivery) {
 /** Escaped text with @alias mentions of current members turned into chips. */
 export function richText(text: string) {
   const aliases = new Map(model().sessions.map((s) => [s.alias, s]));
-  return escapeHtml(text).replace(/(^|[\s(（])@([\w-]+)/g, (whole, lead: string, alias: string) => {
+  // works on escaped text: only inline code and [label](target) links, the two things agents write most
+  return escapeHtml(text)
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_, label: string, target: string) =>
+      /^https?:\/\//.test(target)
+        ? `<a href="${target}" target="_blank" rel="noopener noreferrer">${label}</a>`
+        : `<span class="md-link" title="${target}">${label}</span>`,
+    )
+    .replace(/(^|[\s(（])@([\w-]+)/g, (whole, lead: string, alias: string) => {
     const target = aliases.get(alias);
     if (!target) return whole;
     return `${lead}<button class="mention-chip" data-inspect-session="${target.id}" style="--agent-color:${target.color}">@${escapeHtml(alias)}</button>`;

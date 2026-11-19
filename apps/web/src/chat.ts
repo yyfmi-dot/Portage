@@ -169,7 +169,7 @@ function nativeEventMarkup(e: NativeEvent) {
     : "";
   const body = headline.length > 600
     ? `<details><summary>${escapeHtml(headline.slice(0, 240))}…</summary><pre>${escapeHtml(headline)}</pre></details>`
-    : `<p>${escapeHtml(headline)}</p>`;
+    : `<p>${richText(headline)}</p>`;
   const link = e.correlatedMessageId ? `<button data-message="${e.correlatedMessageId}">Open thread</button>` : "";
   return `<article class="native-event ${e.kind} ${e.correlation}"><header><b>${input ? "Input" : "Output"}</b>${input ? `<span class="corr ${e.correlation}">${correlationLabels[e.correlation]}</span>` : ""}<time>${at}</time>${link}</header>${body}${full}</article>`;
 }
@@ -206,7 +206,7 @@ export function renderComposer() {
     select.innerHTML = `<option value="${target.id}">${escapeHtml(target.name)}</option>`;
     send.disabled = !target.enabled || !target.writable;
     $("contextRevision").textContent = `Global v${model().globalRevision} · direct`;
-    ($("messageInput") as HTMLTextAreaElement).placeholder = `Message ${target.name}…`;
+    ($("messageInput") as HTMLTextAreaElement).placeholder = `Message ${target.name.replace(/…$/, "")}…`;
   } else {
     ($("messageInput") as HTMLTextAreaElement).placeholder = "Write a message, or @ a member…";
     select.innerHTML = `<option value="room">${escapeHtml(room().name)}</option>${room()
@@ -232,7 +232,7 @@ export function renderWakePreview() {
   setHtml(
     el,
     `<span class="wake-label">${names.length ? "Wakes" : "Wakes nobody"}</span>${names
-      .map((n) => `<span class="wake-name">${escapeHtml(n)}</span>`)
+      .map((n) => `<span class="wake-name" title="${escapeHtml(n)}">${escapeHtml(n)}</span>`)
       .join("")}<span class="wake-note">${escapeHtml(note)}</span>`,
   );
 }

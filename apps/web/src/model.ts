@@ -136,7 +136,8 @@ export function buildModel(s: Snapshot): Model {
         document: c.document?.markdown ?? "",
         roundBudget: c.policy?.maxAutoRounds ?? 4,
         messageBudget: c.policy?.agentMessagesPerMinute ?? 12,
-        rounds: c.state?.rounds ?? 0,
+        // a wake past the limit is held and counted one over internally; the user sees the limit reached
+        rounds: Math.min(c.state?.rounds ?? 0, c.policy?.maxAutoRounds ?? 4),
         autoMessages: s.messages.filter(
           (m) => m.conversationId === c.id && m.source !== "user" && now - Date.parse(m.createdAt) < 60_000,
         ).length,

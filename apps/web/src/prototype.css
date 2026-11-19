@@ -1003,11 +1003,20 @@ h1 {
   left: -20px;
   gap: 1px;
 }
+/* native names can be a whole first prompt: one line, and the badge never gets cut */
 .station-label b {
+  display: flex;
+  align-items: center;
+  max-width: 100%;
   font-size: 13px;
   font-weight: 600;
   color: var(--ink);
   white-space: nowrap;
+}
+.station-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .station-label small {
   font-size: 11px;
@@ -1023,6 +1032,7 @@ h1 {
   margin-left: 5px;
   font-weight: 500;
   vertical-align: 1px;
+  flex-shrink: 0;
 }
 .station-state {
   position: absolute;
@@ -1502,6 +1512,9 @@ h1 {
   font-size: 14px;
   font-weight: 600;
   color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .member-info small {
   font-size: 12px;
@@ -1777,9 +1790,27 @@ h1 {
   gap: 8px;
   align-items: baseline;
 }
+:is(.message-body, .native-event p) code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--card);
+}
+:is(.message-body, .native-event p) :is(.md-link, a) {
+  color: #a4643b;
+  text-decoration: underline;
+  text-decoration-color: #a4643b55;
+  text-underline-offset: 2px;
+}
 .message-header b {
+  min-width: 0;
+  max-width: 340px;
   font-size: 14px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .message-header time {
   color: var(--faint);
@@ -2080,8 +2111,12 @@ h1 {
 }
 .graph-node b {
   display: block;
+  max-width: 150px;
   font-size: 13px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .graph-node small {
   display: block;

@@ -110,14 +110,18 @@ export function shouldHoldForConditions(input: {
   return { action: "dispatch" };
 }
 
-/** Auto-round counter: agent auto wake increments; user manual does not. */
+/**
+ * Auto-round counter: a round is an agent message that wakes someone. User sends reset it; manual
+ * wakes and agent messages that wake nobody (a closing summary) leave it as is.
+ */
 export function nextAutoRound(input: {
   currentRounds: number;
   maxAutoRounds: number;
   isUserSender: boolean;
   isManualWake: boolean;
+  wakesSomeone: boolean;
 }): { rounds: number; exceeded: boolean } {
-  if (input.isUserSender || input.isManualWake) {
+  if (input.isUserSender || input.isManualWake || !input.wakesSomeone) {
     return { rounds: input.isUserSender ? 0 : input.currentRounds, exceeded: false };
   }
   const rounds = input.currentRounds + 1;
