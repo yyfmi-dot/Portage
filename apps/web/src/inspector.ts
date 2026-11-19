@@ -1,4 +1,4 @@
-import { policyDocumentBody } from "@portage/core";
+import { policyDocumentBody, type Artifact } from "@portage/core";
 import { $, stateLabels, deliveryStateLabels, type VSession, type VMessage, type VDelivery, ui, model, session, room } from "./state.js";
 import { escapeHtml, memberBadge, senderName, statusFor, queueFor, timeLabel, initial, modeLabel, waitMarkup, formatBytes } from "./format.js";
 import { deliveriesFor, artifactMarkup } from "./chat.js";
@@ -42,7 +42,16 @@ const meter = (label: string, used: number, max: number, title = "") =>
 
 export function roomInspector() {
   const current = room();
-  const artifacts = model().artifacts.filter((a) => a.conversationId === current.id);
+  const files = new Map<string, { latest: Artifact; versions: number }>();
+  for (const a of model().artifacts.filter((a) => a.conversationId === current.id)) {
+    const file = files.get(a.originalName);
+    if (!file) files.set(a.originalName, { latest: a, versions: 1 });
+    else {
+      file.versions += 1;
+      if (a.version > file.latest.version) file.latest = a;
+    }
+  }
+  const artifacts = [...files.values()].sort((a, b) => b.latest.createdAt.localeCompare(a.latest.createdAt));
   const excerpt =
     policyDocumentBody(current.document).split("\n").filter((l) => l.trim() && !l.startsWith("#")).slice(0, 2).join(" ") ||
     "Write down how this room works: who owns what and how work is handed off. It travels with every message and never rewrites who the members are.";
@@ -53,7 +62,7 @@ export function roomInspector() {
       return `<button class="inspector-member" data-inspect-session="${id}"><span class="avatar ${item.provider === "Claude" ? "claude" : ""}">${initial(item)}</span><span class="member-info"><b>${escapeHtml(item.name)}</b><small>${badge ? `${badge} · ` : ""}${item.provider} · ${item.host}</small></span><span class="member-state">${stateLabels[statusFor(item)]}</span></button>`;
     })
     .join("");
-  return `<div class="inspector-heading"><h2>Room overview</h2><span class="live-tag"><i class="live-dot"></i>Live</span></div><div class="inspector-title">${escapeHtml(current.name)}</div><p class="inspector-caption">${escapeHtml(modeLabel(current.mode))}</p><section class="inspector-section"><h3>Members <span class="muted">${current.members.length}</span></h3>${members || '<p class="inspector-caption">No members yet. Drag a session in from the left, or click “Add member”.</p>'}</section><section class="inspector-section"><h3>Auto-collaboration limits</h3>${meter("Discussion rounds", current.rounds, current.roundBudget, "Back-and-forth rounds between AIs; at the limit it stops and waits for you")}${meter("AI messages, last minute", current.autoMessages, current.messageBudget)}<div class="detail-row" title="Members working right now / limit. When full, AI-to-AI wake-ups wait; your messages don't"><span>Working at once</span><strong>${current.runningSeats} / ${current.maxConcurrent}</strong></div><div class="seat-row">${Array.from({ length: current.maxConcurrent }, (_, i) => `<i class="${i < current.runningSeats ? "on" : ""}"></i>`).join("")}</div>${meter("Wake-ups in this thread", current.traceWakeups, current.maxWakeups)}</section><div class="policy-card" style="margin-top:12px"><span>Room rules<b>v${current.revision}</b></span><p>${escapeHtml(excerpt)}</p><button data-open-rules="room">Edit rules</button></div><section class="inspector-section"><h3>Shared files <span class="muted">${artifacts.length}</span></h3>${artifacts.map(artifactMarkup).join("") || '<p class="inspector-caption">Files attached to messages are collected here.</p>'}</section>`;
+  return `<div class="inspector-heading"><h2>Room overview</h2><span class="live-tag"><i class="live-dot"></i>Live</span></div><div class="inspector-title">${escapeHtml(current.name)}</div><p class="inspector-caption">${escapeHtml(modeLabel(current.mode))}</p><section class="inspector-section"><h3>Members <span class="muted">${current.members.length}</span></h3>${members || '<p class="inspector-caption">No members yet. Drag a session in from the left, or click “Add member”.</p>'}</section><section class="inspector-section"><h3>Auto-collaboration limits</h3>${meter("Discussion rounds", current.rounds, current.roundBudget, "Back-and-forth rounds between AIs; at the limit it stops and waits for you")}${meter("AI messages, last minute", current.autoMessages, current.messageBudget)}<div class="detail-row" title="Members working right now / limit. When full, AI-to-AI wake-ups wait; your messages don't"><span>Working at once</span><strong>${current.runningSeats} / ${current.maxConcurrent}</strong></div><div class="seat-row">${Array.from({ length: current.maxConcurrent }, (_, i) => `<i class="${i < current.runningSeats ? "on" : ""}"></i>`).join("")}</div>${meter("Wake-ups in this thread", current.traceWakeups, current.maxWakeups)}</section><div class="policy-card" style="margin-top:12px"><span>Room rules<b>v${current.revision}</b></span><p>${escapeHtml(excerpt)}</p><button data-open-rules="room">Edit rules</button></div><section class="inspector-section"><h3>Shared files <span class="muted">${artifacts.length}</span></h3>${artifacts.map((f) => artifactMarkup(f.latest, f.versions)).join("") || '<p class="inspector-caption">Files attached to messages are collected here.</p>'}</section>`;
 }
 
 /** The proof ladder the user can trust: handed over → its own record shows it → it read it. Only proven rungs are lit. */
@@ -187,5 +196,5 @@ export function messageInspector(message?: VMessage) {
     ["Replies to", message.parentId],
     ["Version", `v${message.revision}`],
   ]);
-  return `<div class="inspector-heading"><h2>Message</h2><span>${timeLabel(message.at)}</span></div><div class="inspector-title">${escapeHtml(senderName(message.sender))}</div><p class="inspector-caption">${escapeHtml(where)}${parent ? ` · reply to ${escapeHtml(senderName(parent.sender))}` : " · new topic"}</p><section class="inspector-section"><p class="inspector-message-body">${escapeHtml(message.text)}</p>${message.artifacts.map(artifactMarkup).join("")}</section><section class="inspector-section"><h3>Deliveries <span class="muted">${deliveries.length}</span></h3>${deliveries.length ? deliveries.map(proofMarkup).join("") : '<p class="inspector-caption">Logged in the room for everyone to see; it woke nobody.</p>'}<button class="wide-button" data-focus-trace="${message.traceId}">Show this thread in Flow</button></section>${tech}`;
+  return `<div class="inspector-heading"><h2>Message</h2><span>${timeLabel(message.at)}</span></div><div class="inspector-title">${escapeHtml(senderName(message.sender))}</div><p class="inspector-caption">${escapeHtml(where)}${parent ? ` · reply to ${escapeHtml(senderName(parent.sender))}` : " · new topic"}</p><section class="inspector-section"><p class="inspector-message-body">${escapeHtml(message.text)}</p>${message.artifacts.map((a) => artifactMarkup(a)).join("")}</section><section class="inspector-section"><h3>Deliveries <span class="muted">${deliveries.length}</span></h3>${deliveries.length ? deliveries.map(proofMarkup).join("") : '<p class="inspector-caption">Logged in the room for everyone to see; it woke nobody.</p>'}<button class="wide-button" data-focus-trace="${message.traceId}">Show this thread in Flow</button></section>${tech}`;
 }

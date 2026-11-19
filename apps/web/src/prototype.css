@@ -541,8 +541,9 @@ h1 {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
   padding: 0 32px 4px;
-  gap: 12px;
+  gap: 8px 12px;
 }
 .tabs {
   display: inline-flex;
@@ -572,7 +573,8 @@ h1 {
 }
 .view-controls {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
   align-items: center;
 }
 .wake-control {
@@ -626,6 +628,7 @@ h1 {
   margin: 12px 24px 0;
   overflow: hidden;
   isolation: isolate;
+  container: office / size;
   border-radius: 28px;
   background:
     radial-gradient(55% 60% at 8% 0%, #fde8d8 0, #fde8d800 70%),
@@ -769,11 +772,27 @@ h1 {
   position: absolute;
   width: 135px;
   height: 120px;
-  transform: translate(-50%, -40%);
+  transform: translate(-50%, -40%) scale(calc(var(--width-fit, 1) * var(--stage-fit, 1)));
   padding: 0;
   border-radius: 14px;
   text-align: center;
   transition: transform 0.25s ease;
+}
+/* rows sit at fixed percentages, so a short stage shrinks the stations to keep the rows apart */
+@container office (max-height: 420px) {
+  .workstation {
+    --stage-fit: 0.86;
+  }
+}
+@container office (max-height: 360px) {
+  .workstation {
+    --stage-fit: 0.76;
+  }
+}
+@container office (max-height: 300px) {
+  .workstation {
+    --stage-fit: 0.66;
+  }
 }
 .workstation:focus-visible {
   outline-offset: 9px;
@@ -1337,11 +1356,6 @@ h1 {
   align-items: center;
   gap: 12px;
   padding: 0 12px 12px 16px;
-}
-.composer-bottom > span {
-  flex: 1;
-  color: var(--faint);
-  font-size: 12px;
 }
 .send-button {
   background: var(--night);
@@ -2343,11 +2357,12 @@ h1 {
   border-color: var(--line-strong);
   box-shadow: 0 0 0 4px #1d20230a;
 }
+/* under the top bar, so it never covers the composer */
 .toast {
   position: fixed;
-  bottom: 28px;
+  top: 68px;
   left: 50%;
-  transform: translate(-50%, 15px);
+  transform: translate(-50%, -12px);
   z-index: 20;
   padding: 11px 22px;
   border-radius: 999px;
@@ -2365,6 +2380,23 @@ h1 {
 .toast.visible {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+.toast.actionable {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-right: 8px;
+}
+.toast-action {
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #ffffff24;
+  color: #fff;
+  font-weight: 600;
+}
+.toast-action:hover {
+  background: #ffffff3d;
 }
 .empty-state {
   padding: 30px;
@@ -2443,7 +2475,7 @@ h1 {
     padding-right: 22px;
   }
   .workstation {
-    transform: translate(-50%, -40%) scale(0.9);
+    --width-fit: 0.9;
   }
   .office-window {
     width: 75px;
@@ -2480,7 +2512,24 @@ h1 {
     display: none;
   }
 }
-@media (max-width: 720px) {
+/* short laptop screens: give the height to the stage, not the header */
+@media (max-height: 820px) {
+  .room-header {
+    padding-top: 16px;
+    padding-bottom: 10px;
+  }
+  .room-header p {
+    display: none;
+  }
+  .room-view {
+    min-height: 420px;
+  }
+  .composer textarea {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+}
+@media (max-width: 900px) {
   .sidebar {
     width: 170px;
     padding-left: 8px;
@@ -2531,6 +2580,8 @@ h1 {
   }
   .wake-control {
     font-size: 0;
+    gap: 0;
+    padding-left: 6px;
   }
   .wake-control select {
     font-size: 11px;
@@ -2558,7 +2609,7 @@ h1 {
     margin: 0 4px;
   }
   .workstation {
-    transform: translate(-50%, -40%) scale(0.78);
+    --width-fit: 0.78;
   }
   .drop-zone {
     width: 63px;
@@ -2575,12 +2626,6 @@ h1 {
   }
   .composer {
     margin: 10px 12px 14px;
-  }
-  .composer-bottom > span {
-    display: none;
-  }
-  .composer-bottom .send-button {
-    margin-left: auto;
   }
   .breadcrumb {
     font-size: 12px;

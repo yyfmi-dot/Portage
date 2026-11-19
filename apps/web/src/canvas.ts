@@ -1,4 +1,4 @@
-import { $, motionPreference, stationPositions, graphPositions, userGraphPosition, PACKET_MS, ui, model, room } from "./state.js";
+import { $, motionPreference, stationPositions, graphPositions, userGraphPosition, PACKET_MS, ui, model, room, speechEnd } from "./state.js";
 import { renderOffice } from "./office.js";
 import { renderGraph } from "./flow.js";
 
@@ -161,8 +161,8 @@ function moving(now: number) {
 /** Timed office states (receiving, just read, speech bubbles) that still need to expire on screen. */
 function officeTimers(now: number) {
   return [...ui.receiving, ...ui.read, ...ui.speaking.entries()]
-    .filter(([, v]) => (typeof v === "number" ? v : v.until) > now)
-    .map(([id]) => id)
+    .filter(([, v]) => (typeof v === "number" ? v : speechEnd(v)) > now)
+    .map(([id, v]) => (typeof v === "number" || now >= v.startAt ? id : `${id}~waiting`))
     .join(",");
 }
 

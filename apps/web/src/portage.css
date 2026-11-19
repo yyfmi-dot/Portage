@@ -317,6 +317,17 @@
 .speech.pop {
   animation: speech-pop 0.36s cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
 }
+/* `scale`, not `transform`, so it composes with each placement's own transform */
+.workstation .speech.leaving,
+.office-door .speech.leaving {
+  animation: speech-leave 0.42s ease-in forwards;
+}
+@keyframes speech-leave {
+  to {
+    opacity: 0;
+    scale: 0.94;
+  }
+}
 .speech:after {
   content: "";
   position: absolute;

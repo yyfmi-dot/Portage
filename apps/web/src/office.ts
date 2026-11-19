@@ -1,4 +1,4 @@
-import { $, stationPositions, stateLabels, reasonShort, type VSession, ui, model, session, room } from "./state.js";
+import { $, stationPositions, stateLabels, reasonShort, type VSession, ui, model, session, room, speechEnd, SPEECH_YIELD_MS } from "./state.js";
 import { isUnread } from "./model.js";
 import { escapeHtml, memberBadge, statusFor, queueFor, sparkline, setHtml, plural } from "./format.js";
 
@@ -6,12 +6,16 @@ export const poppedSpeech = new Set<string>();
 
 export function speechMarkup(id: string, now: number, tag: "span" | "i") {
   const speech = ui.speaking.get(id);
-  if (!speech || speech.until <= now || speech.roomId !== ui.roomId) return "";
+  if (!speech || now < speech.startAt || speechEnd(speech) <= now || speech.roomId !== ui.roomId) return "";
   const key = `${id}:${speech.until}`;
   const pop = !poppedSpeech.has(key);
   poppedSpeech.add(key);
   const text = speech.text.length > 160 ? `${speech.text.slice(0, 160)}…` : speech.text;
-  return `<${tag} class="speech ${pop ? "pop" : ""}"><span class="speech-text">${escapeHtml(text)}</span></${tag}>`;
+  // re-renders rebuild the bubble, so resume the exit where it was instead of restarting it
+  const leaving = speech.leaveAt
+    ? ` leaving" style="animation-delay:${-Math.round(now - (speech.leaveAt - SPEECH_YIELD_MS))}ms`
+    : "";
+  return `<${tag} class="speech ${pop ? "pop" : ""}${leaving}"><span class="speech-text">${escapeHtml(text)}</span></${tag}>`;
 }
 
 export function renderOffice() {

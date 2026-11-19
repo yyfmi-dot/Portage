@@ -7,13 +7,27 @@ export function escapeHtml(value: unknown) {
   );
 }
 
-export function toast(message: string, tone: "" | "error" = "") {
+let toastTimer = 0;
+export function toast(message: string, tone: "" | "error" = "", action?: { label: string; run: () => void }) {
   const el = $("toast");
+  const hide = () => el.classList.remove("visible", "actionable");
   el.textContent = message;
+  if (action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "toast-action";
+    button.textContent = action.label;
+    button.addEventListener("click", () => {
+      hide();
+      action.run();
+    });
+    el.append(button);
+  }
   el.classList.toggle("error", tone === "error");
+  el.classList.toggle("actionable", Boolean(action));
   el.classList.add("visible");
-  clearTimeout((toast as unknown as { timer?: number }).timer);
-  (toast as unknown as { timer?: number }).timer = window.setTimeout(() => el.classList.remove("visible"), 3500);
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(hide, action ? 7000 : 3500);
 }
 
 export function memberBadge(item: VSession, roomId = ui.roomId) {

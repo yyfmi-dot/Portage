@@ -95,7 +95,11 @@ document.addEventListener("click", (event) => {
       ui.selection = { kind: "room", id: ui.roomId };
       ui.inspector = null;
       ui.view = "room";
-    }, "Archived from Portage; room history is kept");
+      toast(`Archived ${s.name}; room history is kept`, "", {
+        label: "Undo",
+        run: () => void act(() => api.updateSession(s.id, { archived: false }), `${s.name} is back`),
+      });
+    });
   } else if (data.editMessage) {
     const message = model().messages.find((m) => m.id === data.editMessage)!;
     showNameDialog(

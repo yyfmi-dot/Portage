@@ -76,6 +76,10 @@ export const deliveryStateLabels: Record<string, string> = {
 export const DORMANT_AFTER_MS = 10 * 60_000;
 export const PACKET_MS = 2400;
 export const SPEECH_MS = 3600;
+/** How long an older bubble takes to step aside once someone else starts talking. */
+export const SPEECH_YIELD_MS = 420;
+export type Speech = { text: string; startAt: number; until: number; roomId: string; leaveAt?: number };
+export const speechEnd = (s: Speech) => Math.min(s.until, s.leaveAt ?? Infinity);
 
 export type VSession = {
   id: string;
@@ -196,7 +200,7 @@ export const ui = {
   receiving: new Map<string, number>(),
   /** Sessions whose agent just read a delivery (agent_ack), until this timestamp. */
   read: new Map<string, number>(),
-  speaking: new Map<string, { text: string; until: number; roomId: string }>(),
+  speaking: new Map<string, Speech>(),
   freshMessages: new Set<string>(),
   renderedView: "",
   flashedSeq: 0,

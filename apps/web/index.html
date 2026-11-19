@@ -183,14 +183,13 @@
                 placeholder="Write a message, or @ a member…"
                 aria-label="Message"
               ></textarea>
-              <div id="wakePreview" class="wake-preview" aria-live="polite"></div>
               <div id="mentionMenu" class="mention-menu" hidden></div>
               <div id="attachmentPreview" class="attachment-preview" hidden></div>
               <div class="composer-bottom">
                 <button type="button" id="attachFile" class="text-button">＋ Attach</button
-                ><input type="file" id="fileInput" hidden /><span id="composerHint"
-                  >Everyone in the room sees this · the mode decides who wakes up</span
-                ><button type="submit" id="sendButton" class="button send-button">
+                ><input type="file" id="fileInput" hidden />
+                <div id="wakePreview" class="wake-preview" aria-live="polite"></div>
+                <button type="submit" id="sendButton" class="button send-button">
                   Send <span>↗</span>
                 </button>
               </div>

@@ -1,6 +1,6 @@
 import type { BusEvent } from "@portage/core";
 import { api, openEventStream, type HistorySlice, type Snapshot } from "./api.js";
-import { $, PACKET_MS, ui, session, SPEECH_MS } from "./state.js";
+import { $, PACKET_MS, ui, session, SPEECH_MS, SPEECH_YIELD_MS, speechEnd } from "./state.js";
 import { buildModel, withHistory } from "./model.js";
 import { toast } from "./format.js";
 import { render, renderConnection } from "./render.js";
@@ -35,12 +35,16 @@ export async function refresh() {
     }
     for (const id of ui.freshMessages) {
       const message = ui.model.messages.find((m) => m.id === id);
-      if (message?.text)
-        ui.speaking.set(message.sender, {
-          text: message.text,
-          until: performance.now() + SPEECH_MS,
-          roomId: message.conversationId,
-        });
+      if (!message?.text) continue;
+      const now = performance.now();
+      // one voice at a time: facing bubbles share the gap between stations, so the new one waits for the old to leave
+      let startAt = now;
+      for (const [speaker, speech] of ui.speaking)
+        if (speaker !== message.sender && speech.roomId === message.conversationId && speechEnd(speech) > now) {
+          speech.leaveAt = Math.min(speech.leaveAt ?? Infinity, now + SPEECH_YIELD_MS);
+          startAt = Math.max(startAt, speech.leaveAt);
+        }
+      ui.speaking.set(message.sender, { text: message.text, startAt, until: startAt + SPEECH_MS, roomId: message.conversationId });
     }
     if (!ui.model.rooms.some((r) => r.id === ui.roomId) && ui.model.rooms[0]) ui.roomId = ui.model.rooms[0].id;
     if (ui.selection.kind === "session" && !session(ui.selection.id)) ui.selection = { kind: "room", id: ui.roomId };

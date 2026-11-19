@@ -374,14 +374,17 @@
 /* ── composer: who will this wake? ───────────────────────────────────── */
 
 .wake-preview {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 6px;
-  padding: 0 14px 6px;
   min-height: 20px;
   font-size: 12px;
   color: var(--muted);
+}
+.wake-preview > span {
+  flex-shrink: 0;
 }
 .wake-label {
   font-family: var(--sans);
@@ -404,7 +407,12 @@
   background: var(--card);
   animation: chip-in 0.25s var(--ease-spring);
 }
-.wake-note {
+.wake-preview > .wake-note {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
 }
 @keyframes chip-in {
