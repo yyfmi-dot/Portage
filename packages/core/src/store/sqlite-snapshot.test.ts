@@ -58,7 +58,7 @@ describe("SqliteSnapshotStore", () => {
     expect(loaded.memberships).toHaveLength(1);
     expect(loaded.messages).toHaveLength(1);
     expect(loaded.deliveries[0]?.state).toBe("submitted");
-    expect(loaded.policyDocuments.get("room:r1")?.markdown).toContain("约束与指导");
+    expect(loaded.policyDocuments.get("room:r1")?.markdown).toContain("Keep your own identity");
     expect(loaded.contextSnapshots.get(loaded.deliveries[0]!.id)?.query).toContain("persist me");
     expect(loaded.events.map((e) => e.eventType)).toContain("DeliverySubmitted");
 

@@ -60,7 +60,7 @@ export function setOffline(detail: string) {
   ui.closeStream?.();
   ui.closeStream = null;
   $("offline").hidden = false;
-  $("offlineDetail").textContent = `${detail} · 每 2 秒自动重试`;
+  $("offlineDetail").textContent = `${detail} · retrying every 2 seconds`;
   renderConnection();
   clearTimeout(retryTimer);
   retryTimer = window.setTimeout(() => void refresh(), 2000);

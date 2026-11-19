@@ -52,41 +52,41 @@ document.addEventListener("click", (event) => {
   else if (data.scope) showRules(data.scope as "room" | "global");
   else if (data.toggleSession) {
     const s = session(data.toggleSession)!;
-    void act(() => api.setCommunication(s.id, !s.enabled), `${s.name} · 信息传递${s.enabled ? "关闭" : "开启"}`);
+    void act(() => api.setCommunication(s.id, !s.enabled), `${s.name} · receiving ${s.enabled ? "off" : "on"}`);
   } else if (data.addSession) {
     const s = session(data.addSession)!;
-    if (current.members.length >= 6) return toast("每个房间视图最多展示 6 位成员");
+    if (current.members.length >= 6) return toast("A room shows at most 6 members");
     void act(async () => {
       await api.joinRoom(current.id, s.participantId);
-    }, "成员已加入，历史可读，唤醒按房间规则执行");
+    }, "Added. It can read the history and wakes by the room's rules");
   } else if (data.leaveSession) {
     const s = session(data.leaveSession)!;
     void act(async () => {
       await api.leaveRoom(current.id, s.participantId);
       if (ui.inspector?.id === s.id) ui.inspector = null;
-    }, "已移出房间，它的会话不受影响");
+    }, "Removed from the room. Its session is untouched");
   } else if (data.makeCoordinator) {
     const s = session(data.makeCoordinator)!;
-    void act(() => api.setWakeMode(current.id, "coordinator", s.participantId), "已更新统筹路由：派发连线与先唤醒对象已切换");
+    void act(() => api.setWakeMode(current.id, "coordinator", s.participantId), "New lead set: messages now go to it first");
   } else if (data.readySession) {
-    void act(() => api.markReady(data.readySession!), "已标记就绪，按序检查待投递消息");
+    void act(() => api.markReady(data.readySession!), "Marked ready; queued messages go out in order");
   } else if (data.wakeSession) {
     const s = session(data.wakeSession)!;
-    if (!s.enabled || !s.writable) return toast("它关闭了接收消息，或者是只读的");
+    if (!s.enabled || !s.writable) return toast("It has receiving turned off, or is read-only");
     void act(
       () =>
         api.send(current.id, {
-          text: `（手动唤醒）请查看「${current.name}」的最新消息并继续。`,
+          text: `(Manual wake-up) Please check the latest messages in “${current.name}” and carry on.`,
           target: { kind: "participant", id: s.participantId },
           isManualWake: true,
         }),
-      `已唤醒 ${s.name} · 不计入自动轮次`,
+      `Woke ${s.name} · doesn't count toward auto rounds`,
     );
   } else if (data.directSession) selectSession(data.directSession);
   else if (data.renameSession) {
     const s = session(data.renameSession)!;
-    showNameDialog("重命名会话", "本地显示名称", s.name, "只改 Portage 里的显示名，不影响它原来的会话。", (name) =>
-      act(() => api.updateSession(s.id, { displayName: name }), "已重命名"),
+    showNameDialog("Rename session", "Display name", s.name, "Only changes the name shown in Portage, not the session itself.", (name) =>
+      act(() => api.updateSession(s.id, { displayName: name }), "Renamed"),
     );
   } else if (data.archiveSession) {
     const s = session(data.archiveSession)!;
@@ -95,17 +95,22 @@ document.addEventListener("click", (event) => {
       ui.selection = { kind: "room", id: ui.roomId };
       ui.inspector = null;
       ui.view = "room";
-    }, "本地关联已归档，房间历史保留");
+    }, "Archived from Portage; room history is kept");
   } else if (data.editMessage) {
     const message = model().messages.find((m) => m.id === data.editMessage)!;
-    showNameDialog("修订消息", "新的正文", message.text, "保留消息 ID 与修订版本。已提交的投递保留原版本，排队中的投递使用新版本。", (text) =>
-      act(() => api.revise(message.id, text), "已保存修订"),
+    showNameDialog(
+      "Edit message",
+      "New text",
+      message.text,
+      "Keeps the message ID and adds a version. Delivered copies keep the old text; queued ones use the new one.",
+      (text) => act(() => api.revise(message.id, text), "Edit saved"),
+      4000,
     );
   } else if (data.hideMessage) {
     ui.hidden.add(data.hideMessage);
     localStorage.setItem("portage.hidden", JSON.stringify([...ui.hidden]));
     renderChat();
-    toast("已在这里隐藏，历史记录仍然保留");
+    toast("Hidden here; the history still has it");
   } else if (data.focusTrace) {
     ui.traceFilter = data.focusTrace;
     ui.view = "flow";
@@ -117,18 +122,18 @@ document.addEventListener("click", (event) => {
       void act(async () =>
         showSnapshot(
           await api.context(d.id),
-          "它实际收到的内容",
-          `${senderName(d.recipient)} 收到的完整内容 · ${d.receipt?.nativeMessageId ?? "尚未提交"}`,
+          "What it actually received",
+          `Everything ${senderName(d.recipient)} received · ${d.receipt?.nativeMessageId ?? "not delivered yet"}`,
         ),
       );
   } else if (data.cancelDelivery) {
-    void act(() => api.cancelDelivery(data.cancelDelivery!), "投递已取消 · 消息仍保留在历史中");
+    void act(() => api.cancelDelivery(data.cancelDelivery!), "Delivery cancelled · the message stays in the history");
   } else if (data.confirmBinding) {
-    void act(() => api.confirmBinding(data.confirmBinding!), "已确认新绑定 · 暂缓项按新身份投递");
+    void act(() => api.confirmBinding(data.confirmBinding!), "New identity confirmed · held messages go to it now");
   } else if (data.interruptSession) {
     void act(async () => {
       const { interrupted } = await api.interrupt(data.interruptSession!);
-      toast(interrupted ? "已中断原生回合" : "没有正在运行的回合");
+      toast(interrupted ? "Stopped its current turn" : "No turn is running");
     });
   } else if (data.nativeSession) {
     selectSession(data.nativeSession);
@@ -142,7 +147,7 @@ document.addEventListener("click", (event) => {
     const a = model().artifacts.find((x) => x.id === data.artifact);
     if (a) {
       void navigator.clipboard?.writeText(a.storageKey).catch(() => undefined);
-      toast(`${a.originalName} v${a.version} · 路径已复制：${a.storageKey}`);
+      toast(`${a.originalName} v${a.version} · path copied: ${a.storageKey}`);
     }
   } else if (data.register) {
     const e = JSON.parse(data.register) as DiscoveredEndpoint;
@@ -157,13 +162,13 @@ document.addEventListener("click", (event) => {
         workdir: e.workdir,
       });
       renderDiscover((await api.discover()).endpoints);
-    }, "已登记，可拖入房间或直接对话");
+    }, "Added. Drag it into a room or chat with it directly");
   } else if (data.mention) insertMention(data.mention);
   else if (data.eventInfo) toast(data.eventInfo);
 });
 
 ($("sessionSearch") as HTMLInputElement).addEventListener("input", renderSidebar);
-$("workspaceButton").addEventListener("click", () => toast("个人工作区 · 数据保存在本机 ~/.portage"));
+$("workspaceButton").addEventListener("click", () => toast("Personal workspace · data lives in ~/.portage on this computer"));
 $("showInspector").addEventListener("click", () => $("inspector").classList.toggle("open"));
 $("viewAllMessages").addEventListener("click", () => {
   ui.view = "chat";
@@ -194,7 +199,7 @@ $("demoCollaboration").addEventListener("click", () => void demoCollaboration())
 $("createSession").addEventListener("click", () => void showDiscover());
 $("pauseRoom").addEventListener("click", () => {
   const current = room();
-  void act(() => api.setPaused(current.id, !current.paused), current.paused ? "已恢复自动通信 · 暂缓项重新检查" : "已暂停自动通信 · 新投递进入暂缓");
+  void act(() => api.setPaused(current.id, !current.paused), current.paused ? "Auto-messaging resumed · held messages are rechecked" : "Auto-messaging paused · new deliveries are held");
 });
 $("wakeMode").addEventListener("change", (event) => {
   const mode = (event.target as HTMLSelectElement).value;
@@ -203,10 +208,10 @@ $("wakeMode").addEventListener("change", (event) => {
   void act(
     () => api.setWakeMode(current.id, mode, lead),
     mode === "coordinator"
-      ? "统筹模式：显示派发连线，用户消息先到统筹者"
+      ? "Coordinator mode: your messages go to the lead first"
       : mode === "swarm"
-        ? "自由协作：谁被 @ 谁回应"
-        : `已切换为 ${modeLabel(mode)}`,
+        ? "Open floor: whoever is @-mentioned replies"
+        : `Switched to ${modeLabel(mode)}`,
   );
 });
 $("traceFilter").addEventListener("change", (event) => {
@@ -222,7 +227,7 @@ $("attachFile").addEventListener("click", () => $("fileInput").click());
 $("fileInput").addEventListener("change", () => {
   const file = ($("fileInput") as HTMLInputElement).files?.[0];
   if (!file) return;
-  if (file.size > 8 * 1024 * 1024) return toast("附件最大 8 MiB", "error");
+  if (file.size > 8 * 1024 * 1024) return toast("Attachments can be up to 8 MiB", "error");
   ui.attachment = file;
   renderComposer();
 });
@@ -266,12 +271,12 @@ $("messageInput").addEventListener("keydown", (event) => {
 });
 $("messageInput").addEventListener("blur", () => setTimeout(() => ($("mentionMenu").hidden = true), 150));
 $("createRoom").addEventListener("click", () =>
-  showNameDialog("新建房间", "房间名称", "", "建好后把左侧的会话拖进来就行。新房间默认是自由协作。", async (name) => {
+  showNameDialog("New room", "Room name", "", "Then drag sessions in from the left. New rooms start in open-floor mode.", async (name) => {
     try {
       const created = await api.createRoom(name);
       await refresh();
       selectRoom(created.id);
-      toast("房间已创建");
+      toast("Room created");
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error), "error");
     }
@@ -307,12 +312,12 @@ document.addEventListener("drop", (event) => {
   const s = id ? session(id) : undefined;
   if (!s) return;
   const roomId = target.dataset.dropRoom ?? ui.roomId;
-  if (room(roomId).members.includes(s.id)) return toast("它已经在房间里了");
+  if (room(roomId).members.includes(s.id)) return toast("It is already in the room");
   void act(async () => {
     await api.joinRoom(roomId, s.participantId);
     ui.roomId = roomId;
     ui.selection = { kind: "room", id: roomId };
-  }, `${s.name} 已加入 ${room(roomId).name}`);
+  }, `${s.name} joined ${room(roomId).name}`);
 });
 document.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {

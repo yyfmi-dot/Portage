@@ -11,7 +11,7 @@ export function printConfig(input: { nodePath: string; launcherPath: string; dae
   return [
     "Portage MCP — connect a CLI to the Portage daemon",
     "",
-    "0. Start the daemon, then register the CLI's session in the Portage UI (＋ 登记本机会话).",
+    "0. Start the daemon, then register the CLI's session in the Portage UI (＋ next to Sessions).",
     "   The server identifies its CLI by process ancestry (pid-<cli pid>), so no session id is needed.",
     "",
     "Codex  (~/.codex/config.toml)",
@@ -22,6 +22,6 @@ export function printConfig(input: { nodePath: string; launcherPath: string; dae
     "Claude Code  (run once)",
     `claude mcp add portage -- "${node}" "${launcher}"`,
     "",
-    "Then tell the agent: “check portage_inbox”. Delivered messages show as 已读 in the Portage UI once it does.",
+    "Then tell the agent: “check portage_inbox”. Delivered messages show as Read in the Portage UI once it does.",
   ].join("\n");
 }

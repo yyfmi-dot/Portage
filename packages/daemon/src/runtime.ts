@@ -48,9 +48,9 @@ export type RuntimeOptions = {
 
 const DEFAULT_GLOBAL_POLICY = `# PORTAGE.md
 
-- 各 session 保留原生身份与正在进行的工作，Portage 只负责传递。
-- 需要他人处理时明确 @ 对方，并说明期望产出。
-- 回复附上来源与产物引用；结果不确定时如实标注。`;
+- Every session keeps its native identity and the work in hand; Portage only carries messages.
+- When you need someone else, @ them and say what you expect back.
+- Cite sources and artifacts in replies; say so plainly when a result is uncertain.`;
 
 export function createRuntime(options: RuntimeOptions = {}): DaemonRuntime {
   const home = portageHome();
@@ -140,7 +140,7 @@ export function createRuntime(options: RuntimeOptions = {}): DaemonRuntime {
   // A turn that was running when the daemon stopped is not ours anymore; readiness sees whoever holds it.
   for (const session of nativeSessions()) {
     if (bus.runtime.get(session.id)?.execution === "running")
-      bus.setSessionExecution(session.id, "idle", "Portage 重启，之前的回合不再由它跟踪");
+      bus.setSessionExecution(session.id, "idle", "Portage restarted and no longer tracks the earlier turn");
   }
   return runtime;
 }
@@ -149,7 +149,7 @@ export function createRuntime(options: RuntimeOptions = {}): DaemonRuntime {
 async function finishTurn(runtime: DaemonRuntime, end: TurnEnd) {
   try {
     await runtime.syncNative(end.sessionId);
-    await runtime.bus.reportExecution(end.sessionId, "idle", end.ok ? undefined : `原生回合失败：${end.error}`);
+    await runtime.bus.reportExecution(end.sessionId, "idle", end.ok ? undefined : `Native turn failed: ${end.error}`);
     runtime.persist();
   } catch (error) {
     console.error("[portage] finishing a native turn failed:", error);
@@ -181,14 +181,14 @@ export async function seedDemoRoom(runtime: DaemonRuntime) {
       },
       participantId: `p_${alias}`,
     });
-  demo("demo-codex-lead", "codex", "terminal", "统筹会话", "lead");
-  demo("demo-claude-builder", "claude", "vscode_cli", "适配器实现", "builder");
-  demo("demo-claude-reviewer", "claude", "terminal", "代码审查", "reviewer");
+  demo("demo-codex-lead", "codex", "terminal", "Coordinator", "lead");
+  demo("demo-claude-builder", "claude", "vscode_cli", "Adapter builder", "builder");
+  demo("demo-claude-reviewer", "claude", "terminal", "Code reviewer", "reviewer");
   bus.setSessionExecution("s_builder", "running");
 
   bus.createRoom({
     id: "room_dev",
-    title: "Portage 开发室",
+    title: "Portage Studio",
     createdBy: "user",
     wakeMode: "coordinator",
     coordinatorParticipantId: "p_lead",

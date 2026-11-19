@@ -108,7 +108,7 @@ NativeEvent 保存 sessionId、adapterId、nativeEventId、nativeCursor、native
 
 NativeSyncCheckpoint 保存 sourceGeneration、cursor、lastSuccessAt、gap、error。回显、断线补读按来源去重键处理，缺口可查询。
 
-实现（v1.0）：NativeEvent 为 sessionId、adapterId、nativeEventId（去重键）、nativeTime、ingestedAt、kind（input / output / turn_started / turn_completed / turn_failed）、text、correlatedMessageId?、correlatedDeliveryId?、correlation exact / inferred / unknown。exact 来自输入中的 `[原始消息 · v… · id]` 标记，并同时产生该投递的 `native_confirmed` 凭据；inferred 为同一回合内、该输入之后的输出；回合开始即切断关联，避免把宿主自己的输入算到上一条消息上。内存中全部会话合计保留最近 2 万条。NativeSyncCheckpoint 为 sessionId、source（记录文件）、cursor（字节偏移）、lastSuccessAt、error；改绑原生身份时清空游标。Delivery 另有 detail?：适配器给出的暂缓说明（如占用该会话的进程），任何下一次状态迁移都会清除。
+实现（v1.0）：NativeEvent 为 sessionId、adapterId、nativeEventId（去重键）、nativeTime、ingestedAt、kind（input / output / turn_started / turn_completed / turn_failed）、text、correlatedMessageId?、correlatedDeliveryId?、correlation exact / inferred / unknown。exact 来自输入中的 `[Original message · v… · id]` 标记（旧记录里的 `[原始消息 · v… · id]` 同样识别），并同时产生该投递的 `native_confirmed` 凭据；inferred 为同一回合内、该输入之后的输出；回合开始即切断关联，避免把宿主自己的输入算到上一条消息上。内存中全部会话合计保留最近 2 万条。NativeSyncCheckpoint 为 sessionId、source（记录文件）、cursor（字节偏移）、lastSuccessAt、error；改绑原生身份时清空游标。Delivery 另有 detail?：适配器给出的暂缓说明（如占用该会话的进程），任何下一次状态迁移都会清除。
 
 PolicyDocument 保存 scope、Markdown、已校验结构化 policy、draftRevision、publishedRevision、hash、updatedBy、publishedAt。EffectivePolicy 从各层约束及当前成员权限计算。
 

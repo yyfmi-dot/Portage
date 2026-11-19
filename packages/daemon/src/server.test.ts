@@ -75,9 +75,9 @@ describe("daemon HTTP API L4 closed loop", () => {
     const lead = snap.sessions.find((s: { id: string }) => s.id === "s_lead");
     const leadText = latestInboxText(lead.provider, lead.nativeIdentity);
     expect(leadText).toContain("请统筹推进适配器契约");
-    expect(leadText).toContain("[全局 PORTAGE.md · v1");
-    expect(leadText).toContain("[房间 collaboration.md · v2");
-    expect(leadText).toContain("当前统筹者（路由）");
+    expect(leadText).toContain("[Global PORTAGE.md · v1");
+    expect(leadText).toContain("[Room collaboration.md · v2");
+    expect(leadText).toContain("current lead (routing)");
     expect(snap.contexts[user.json.deliveries[0].id].hash).toBeTruthy();
     expect(snap.contexts[user.json.deliveries[0].id].query).toBeUndefined();
     const context = await fetch(`${base}/api/deliveries/${user.json.deliveries[0].id}/context`).then((r) => r.json() as Promise<Json>);
@@ -132,7 +132,7 @@ describe("daemon HTTP API L4 closed loop", () => {
   it("preview compiles what the recipient will get; artifacts and direct chat reach the inbox", async () => {
     const preview = await post("/api/conversations/room_dev/preview", { text: "预览正文" });
     expect(preview.json.recipientSessionId).toBe("s_lead");
-    expect(preview.json.snapshot.layers).toEqual(["全局 PORTAGE.md", "房间 collaboration.md", "执行策略", "原始消息", "回复方式"]);
+    expect(preview.json.snapshot.layers).toEqual(["Global PORTAGE.md", "Room collaboration.md", "Execution policy", "Original message", "How to reply"]);
 
     const artifact = await post("/api/artifacts", {
       name: "review.md",

@@ -788,7 +788,7 @@ export class MemoryBus implements PortageBusApi {
       id: input.id,
       scope: "room",
       markdown:
-        "# 通信约定\n\n约束与指导，不改写各 session 原有身份。\n需要他人处理时明确 @ 对方；完成后附产物引用。",
+        "# Working together\n\nKeep your own identity and the work you have in hand.\nWhen you need someone, @ them and say what you expect back. Attach your artifacts when you finish.",
       publishedRevision: 1,
       hash: "seed",
       updatedBy: input.createdBy,
@@ -1636,9 +1636,9 @@ export class MemoryBus implements PortageBusApi {
       message,
       artifacts,
       recipientLabel: recipient
-        ? `${recipient.displayName} · ${recipient.provider}/${recipient.host}${isCoordinator ? " · 当前统筹者（路由）" : ""}`
-        : "房间成员",
-      sourceLabel: `${this.senderLabel(message.senderId)} → ${isRoom ? conversation.title : "私聊"} · scope=${conversation.id}`,
+        ? `${recipient.displayName} · ${recipient.provider}/${recipient.host}${isCoordinator ? " · current lead (routing)" : ""}`
+        : "room member",
+      sourceLabel: `${this.senderLabel(message.senderId)} → ${isRoom ? conversation.title : "direct message"} · scope=${conversation.id}`,
       replyThroughPortage: isRoom,
       maxContextBytes: policy.maxContextBytes,
     });
@@ -1755,7 +1755,7 @@ export class MemoryBus implements PortageBusApi {
   }
 
   private senderLabel(senderId: string) {
-    if (senderId === "user") return "用户";
+    if (senderId === "user") return "user";
     const sessionId = this.participants.get(senderId)?.sessionId;
     return (sessionId && this.sessions.get(sessionId)?.displayName) || senderId;
   }

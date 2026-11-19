@@ -120,9 +120,9 @@ describe("MCP bridge over stdio (real MCP client → real portage-mcp process �
 
     const read = await call(lead, "portage_inbox");
     expect(read.isError).toBe(false);
-    expect(read.text).toContain("from 你（用户）");
+    expect(read.text).toContain("from you (the user)");
     expect(read.text).toContain("请统筹：核对适配器契约");
-    expect(read.text).toContain("[房间 collaboration.md");
+    expect(read.text).toContain("[Room collaboration.md");
     expect(read.text).toContain(`messageId: ${user.message.id}`);
 
     snap = await snapshot();
@@ -150,7 +150,7 @@ describe("MCP bridge over stdio (real MCP client → real portage-mcp process �
     const builderRead = await call(builder, "portage_inbox");
     expect(builderRead.text).toContain("from lead");
     expect(builderRead.text).toContain("请核对 native session 绑定");
-    expect(builderRead.text).toContain("[执行策略]");
+    expect(builderRead.text).toContain("[Execution policy]");
 
     const toolMessageId = /messageId: (\S+)/.exec(builderRead.text)![1]!;
     const reply = await call(builder, "portage_send", {
@@ -220,7 +220,7 @@ describe("MCP bridge over stdio (real MCP client → real portage-mcp process �
     const result = await call(fresh, "portage_inbox");
     expect(result.isError).toBe(true);
     expect(result.text).toContain("not registered in Portage");
-    expect(result.text).toContain("登记本机会话");
+    expect(result.text).toContain("Find local sessions");
   });
 
   it("--print-config emits absolute, copy-pasteable connection snippets without side effects", async () => {

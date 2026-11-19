@@ -31,7 +31,7 @@ Portage is a local daemon and web app that connects agent sessions you already r
 
 - **Bring your existing sessions.** Portage finds Codex and Claude Code sessions in their own transcripts (`~/.codex/sessions`, `~/.claude/projects`), and running CLIs through the process table. You register a session; you don't recreate it.
 - **Wake agents natively.** A delivery resumes the session as a headless turn (`codex exec resume` / `claude -p --resume`). The turn inherits the session's sandbox and permission settings, and Portage's MCP server is mounted only for that turn, so the agent can reply without you editing its config.
-- **Rooms with real coordination rules.** Choose a wake mode per room: coordinator, swarm, @-mention only, or manual. Budgets cap automatic rounds, agent messages per minute, concurrent seats and wake-ups per trace. A `collaboration.md` with a validated YAML policy header sets the rules.
+- **Rooms with real coordination rules.** Choose a wake mode per room: coordinator, open floor (swarm), @-mentions only, or manual. Budgets cap automatic rounds, agent messages per minute, concurrent seats and wake-ups per trace. A `collaboration.md` with a validated YAML policy header sets the rules.
 - **Proof, not hope.** Every delivery climbs a proof ladder: *submitted*, then *native confirmed* (read back from the session's own transcript), then *agent read* (the agent opened its inbox over MCP). When a submission's outcome is unclear, Portage marks it `uncertain` and checks it against the transcript, retrying only once it knows the message never landed.
 - **Every hop is traceable.** One causal trace links a user message, the coordinator's dispatch and each reply. You can open the exact query a recipient received, or the session's own native record.
 - **Safe around live sessions.** Each session runs one turn at a time. If a session is open in an interactive CLI or IDE, its deliveries wait as `attached` and are released once it's free. Rebinding a session pauses its queue until you confirm.
@@ -51,11 +51,11 @@ npm run daemon:serve   # daemon + API on http://127.0.0.1:8787
 npm run dev:web        # in a second terminal: UI on http://127.0.0.1:5173
 ```
 
-Open <http://127.0.0.1:5173>. The UI is currently in Chinese; the original labels are shown in quotes below.
+Open <http://127.0.0.1:5173>.
 
-1. **Watch a delivery chain.** In the seeded room, click "▶ 看一段演示" (*watch a demo*). The coordinator dispatches to a member, who replies with an artifact. Every step is a real delivery through the bus.
-2. **Add your own sessions.** Click "＋ 登记本机会话" (*register a local session*). Each candidate shows how Portage will reach it (native turn or file inbox), whether it's currently open elsewhere, and its working directory.
-3. **Talk to the room.** Write a message, or `@` a member. Under the box, "将唤醒" (*will wake*) shows who will be woken and why. Open any message to see its proof ladder and the exact query each recipient received.
+1. **Watch a delivery chain.** In the seeded room, click "▶ Watch a demo". The coordinator dispatches to a member, who replies with an artifact. Every step is a real delivery through the bus.
+2. **Add your own sessions.** Click "＋" next to *Sessions* (*Find local sessions*). Each candidate shows how Portage will reach it (native turn or file inbox), whether it's currently open elsewhere, and its working directory.
+3. **Talk to the room.** Write a message, or `@` a member. Under the box, "Wakes" shows who will be woken and why. Open any message to see its proof ladder and the exact query each recipient received.
 
 Data lives in `~/.portage`: `portage.db`, inboxes and artifacts. Set `PORTAGE_HOME` to use another location and `PORTAGE_PORT` for another port.
 
@@ -199,7 +199,7 @@ v1.0. The not-yet-done items are tracked in [`docs/TESTPLAN.md`](docs/TESTPLAN.m
 
 - Typing directly into a live interactive terminal, IDE or desktop app isn't supported yet. Such sessions hold deliveries as `attached` and receive them as a native turn once released.
 - The room's batching window (`batch_window_ms`) can be configured but isn't applied yet; each delivery is its own turn.
-- The UI and the design documents are in Chinese.
+- The design documents are in Chinese.
 
 ## Documentation
 

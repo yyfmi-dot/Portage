@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
-    <title>Portage · 会话与协作空间</title>
+    <title>Portage · sessions that work together</title>
   </head>
   <body>
     <div class="app-shell" id="appShell">
@@ -14,7 +14,7 @@
           ><span class="prototype">v1.0</span>
         </div>
         <button class="workspace" id="workspaceButton">
-          <span class="workspace-icon">P</span><span>个人工作区<small>数据只保存在这台电脑</small></span
+          <span class="workspace-icon">P</span><span>Personal workspace<small>Everything stays local</small></span
           ><span class="local-dot" id="workspaceDot"></span>
         </button>
         <label class="search"
@@ -22,32 +22,32 @@
           ><input
             id="sessionSearch"
             type="search"
-            placeholder="搜索会话…"
-            aria-label="搜索会话"
+            placeholder="Search sessions…"
+            aria-label="Search sessions"
           /><kbd>⌘ K</kbd></label
         >
         <div class="sidebar-heading">
-          <span>房间</span><button id="createRoom" aria-label="新建房间">＋</button>
+          <span>Rooms</span><button id="createRoom" aria-label="New room">＋</button>
         </div>
-        <nav id="roomList" aria-label="房间列表"></nav>
+        <nav id="roomList" aria-label="Rooms"></nav>
         <div class="sidebar-heading sources-heading">
-          <span>会话来源</span><button id="createSession" aria-label="登记本机会话">＋</button>
+          <span>Sessions</span><button id="createSession" aria-label="Find local sessions">＋</button>
         </div>
         <div id="sessionTree" class="session-tree"></div>
         <div class="sidebar-footer">
-          <span class="local-dot" id="connectionDot"></span><span id="connectionLabel">正在连接本机服务…</span
-          ><button id="reconnect" title="重新连接本机服务">刷新</button>
+          <span class="local-dot" id="connectionDot"></span><span id="connectionLabel">Connecting to the local service…</span
+          ><button id="reconnect" title="Reconnect to the local service">Refresh</button>
         </div>
       </aside>
       <div class="workspace-main">
         <header class="topbar">
           <div class="breadcrumb">
-            <span>工作区</span><span>/</span><strong id="currentLocation">Portage 开发室</strong>
+            <span>Workspace</span><span>/</span><strong id="currentLocation">Portage Studio</strong>
           </div>
           <div class="topbar-actions">
-            <span class="simulation-label" id="daemonLabel">本机服务</span
-            ><button id="globalRules" class="text-button">全局约定</button
-            ><button id="showInspector" class="icon-button" aria-label="显示详情">◫</button>
+            <span class="simulation-label" id="daemonLabel">Local service</span
+            ><button id="globalRules" class="text-button">Global rules</button
+            ><button id="showInspector" class="icon-button" aria-label="Show details">◫</button>
           </div>
         </header>
         <div class="content-shell">
@@ -55,44 +55,44 @@
             <div class="workspace-scroll">
               <section class="room-header">
                 <div>
-                  <div class="room-eyebrow" id="roomEyebrow">协作房间</div>
-                  <h1 id="viewTitle">Portage 开发室</h1>
-                  <p id="viewSubtitle">不同来源的会话，在同一个空间协作。</p>
+                  <div class="room-eyebrow" id="roomEyebrow">Room</div>
+                  <h1 id="viewTitle">Portage Studio</h1>
+                  <p id="viewSubtitle">Sessions from different tools, working in one room.</p>
                 </div>
                 <div class="room-actions">
-                  <button id="addMember" class="button secondary">＋ 添加成员</button
+                  <button id="addMember" class="button secondary">＋ Add member</button
                   ><button id="roomRules" class="button rule-button">
-                    <span class="mono">✎</span> <span id="roomRulesLabel">协作约定</span>
+                    <span class="mono">✎</span> <span id="roomRulesLabel">Room rules</span>
                   </button>
                 </div>
               </section>
               <div class="view-toolbar">
-                <div class="tabs" role="tablist" aria-label="视图">
-                  <button data-view="room" role="tab" aria-selected="true">房间</button
-                  ><button data-view="chat" role="tab" aria-selected="false">对话</button
-                  ><button data-view="flow" role="tab" aria-selected="false">信息流</button>
+                <div class="tabs" role="tablist" aria-label="Views">
+                  <button data-view="room" role="tab" aria-selected="true">Room</button
+                  ><button data-view="chat" role="tab" aria-selected="false">Chat</button
+                  ><button data-view="flow" role="tab" aria-selected="false">Flow</button>
                 </div>
                 <div class="view-controls">
-                  <button id="demoCollaboration" class="button demo-button">看一段演示</button
+                  <button id="demoCollaboration" class="button demo-button">Watch a demo</button
                   ><label class="wake-control"
-                    >模式<select id="wakeMode" aria-label="房间协作模式">
-                      <option value="coordinator">统筹</option>
-                      <option value="swarm">自由协作</option>
-                      <option value="mentions">仅 @ 提及</option>
-                      <option value="manual">手动</option>
+                    >Mode<select id="wakeMode" aria-label="Room mode">
+                      <option value="coordinator">Coordinator</option>
+                      <option value="swarm">Open floor</option>
+                      <option value="mentions">@ mentions only</option>
+                      <option value="manual">Manual</option>
                     </select></label
-                  ><button id="pauseRoom" class="text-button">暂停自动通信</button>
+                  ><button id="pauseRoom" class="text-button">Pause auto-messaging</button>
                 </div>
               </div>
-              <section id="roomView" class="room-view" aria-label="协作房间">
+              <section id="roomView" class="room-view" aria-label="Room">
                 <div id="attentionBar" class="attention-bar" role="status" hidden></div>
                 <div class="office" id="office">
                   <div class="office-floor"></div>
                   <div class="office-light" aria-hidden="true"></div>
                   <div class="office-window"><i class="window-sky"></i></div>
                   <div class="office-plant"><i></i><i></i><i></i><span></span></div>
-                  <div class="room-sign"><span id="roomSignName"></span><small><i class="live-dot"></i><span id="roomStatus"></span></small><span class="room-pulse" id="roomPulse" title="近 12 分钟房间里的动静（每格 30 秒）"></span></div>
-                  <div class="office-door" aria-hidden="true"><span>你</span></div>
+                  <div class="room-sign"><span id="roomSignName"></span><small><i class="live-dot"></i><span id="roomStatus"></span></small><span class="room-pulse" id="roomPulse" title="Room activity over the last 12 minutes (30 s per bar)"></span></div>
+                  <div class="office-door" aria-hidden="true"><span>You</span></div>
                   <canvas id="roomCanvas" aria-hidden="true"></canvas>
                   <div id="workstations"></div>
                   <div
@@ -100,160 +100,160 @@
                     class="drop-zone"
                     tabindex="0"
                     role="button"
-                    aria-label="添加或拖入会话"
+                    aria-label="Add or drop a session"
                   >
-                    <span>＋</span><small>拖入会话<br />或点此添加</small>
+                    <span>＋</span><small>Drop a session<br />or click to add</small>
                   </div>
                   <div id="roomEmpty" class="room-empty" hidden></div>
                 </div>
                 <div class="room-footer">
                   <div class="room-summary" id="roomSummary"></div>
                   <div class="office-legend">
-                    <span><i class="legend-dot active"></i>工作中</span
-                    ><span><i class="legend-dot queued"></i>待送达</span
-                    ><span><i class="legend-dot dormant"></i>未唤醒</span
-                    ><span><i class="legend-dot packet"></i>正在传递</span
-                    ><span><i class="legend-dot human"></i>等你处理</span
-                    ><span id="dispatchLegend" hidden><i class="legend-line dispatch"></i>统筹派发</span>
+                    <span><i class="legend-dot active"></i>Working</span
+                    ><span><i class="legend-dot queued"></i>Queued</span
+                    ><span><i class="legend-dot dormant"></i>Asleep</span
+                    ><span><i class="legend-dot packet"></i>In transit</span
+                    ><span><i class="legend-dot human"></i>Needs you</span
+                    ><span id="dispatchLegend" hidden><i class="legend-line dispatch"></i>Dispatch route</span>
                   </div>
                 </div>
               </section>
-              <section id="chatView" class="chat-view" aria-label="对话记录" hidden>
+              <section id="chatView" class="chat-view" aria-label="Chat" hidden>
                 <div class="chat-bar">
                   <div class="chat-context" id="chatContext"></div>
-                  <div id="chatSource" class="segmented" role="tablist" aria-label="记录来源" hidden>
-                    <button data-chat-source="portage" role="tab">Portage 消息</button
-                    ><button data-chat-source="native" role="tab">它自己的记录</button>
+                  <div id="chatSource" class="segmented" role="tablist" aria-label="Record source" hidden>
+                    <button data-chat-source="portage" role="tab">Portage messages</button
+                    ><button data-chat-source="native" role="tab">Its own record</button>
                   </div>
                 </div>
                 <div id="messages" class="messages" aria-live="polite"></div>
               </section>
-              <section id="flowView" class="flow-view" aria-label="信息流监控" hidden>
+              <section id="flowView" class="flow-view" aria-label="Flow" hidden>
                 <div class="flow-toolbar">
                   <div>
-                    <span class="live-dot"></span><b>信息流</b
+                    <span class="live-dot"></span><b>Flow</b
                     ><span id="flowCount" class="muted"></span>
                   </div>
                   <div>
-                    <select id="traceFilter" aria-label="链路筛选">
-                      <option value="all">全部链路</option></select
-                    ><button id="pauseAnimation" class="text-button">暂停动画</button>
+                    <select id="traceFilter" aria-label="Filter by thread">
+                      <option value="all">All threads</option></select
+                    ><button id="pauseAnimation" class="text-button">Pause motion</button>
                   </div>
                 </div>
                 <div class="flow-layout">
                   <div class="flow-pane">
-                    <div class="flow-pane-head"><strong>时间线</strong>房间里发生的每件事</div>
-                    <div id="flowTimeline" class="flow-timeline" aria-label="信息流时间线"></div>
+                    <div class="flow-pane-head"><strong>Timeline</strong>Everything that happened in the room</div>
+                    <div id="flowTimeline" class="flow-timeline" aria-label="Flow timeline"></div>
                   </div>
                   <div class="flow-pane">
-                    <div class="flow-pane-head"><strong>链路图</strong>谁把消息传给了谁<span class="graph-legend"><span class="legend-solid">— 送达</span><span class="legend-dashed">┄ 回应上一条</span><span>● 正在传递</span></span></div>
+                    <div class="flow-pane-head"><strong>Thread map</strong>Who passed what to whom<span class="graph-legend"><span class="legend-solid">— delivered</span><span class="legend-dashed">┄ replied to</span><span>● in transit</span></span></div>
                     <div class="graph-stage">
                       <canvas
                         id="flowCanvas"
-                        aria-label="信息流图，详细消息可从时间线读取"
+                        aria-label="Thread map; read individual messages in the timeline"
                       ></canvas>
                       <div id="graphNodes" class="graph-nodes"></div>
                     </div>
                   </div>
                   <div class="flow-pane">
-                    <div class="flow-pane-head"><strong>收件箱</strong>每位成员还没送达的消息</div>
-                    <div id="deliveryBoard" class="delivery-board" aria-label="投递状态板"></div>
+                    <div class="flow-pane-head"><strong>Inboxes</strong>Messages still on their way to each member</div>
+                    <div id="deliveryBoard" class="delivery-board" aria-label="Delivery board"></div>
                   </div>
                 </div>
               </section>
               <section class="activity-panel" id="activityPanel">
                 <div class="activity-heading">
-                  <h2>最近活动</h2>
+                  <h2>Recent activity</h2>
                   <span id="eventCounter"></span
-                  ><button id="viewAllMessages" class="text-button">查看对话 ↗</button>
+                  ><button id="viewAllMessages" class="text-button">Open chat ↗</button>
                 </div>
                 <div id="activityList" class="activity-list"></div>
               </section>
             </div>
             <form id="composer" class="composer">
               <div class="composer-target">
-                <span>发送至</span
-                ><select id="sendTarget" aria-label="发送目标"></select
+                <span>To</span
+                ><select id="sendTarget" aria-label="Send to"></select
                 ><span id="contextRevision" class="context-revision"></span
-                ><button type="button" id="previewQuery" class="text-button">预览它会收到什么</button>
+                ><button type="button" id="previewQuery" class="text-button">Preview what they receive</button>
               </div>
               <textarea
                 id="messageInput"
                 rows="2"
-                placeholder="发一条消息，或 @ 一个成员…"
-                aria-label="消息正文"
+                placeholder="Write a message, or @ a member…"
+                aria-label="Message"
               ></textarea>
               <div id="wakePreview" class="wake-preview" aria-live="polite"></div>
               <div id="mentionMenu" class="mention-menu" hidden></div>
               <div id="attachmentPreview" class="attachment-preview" hidden></div>
               <div class="composer-bottom">
-                <button type="button" id="attachFile" class="text-button">＋ 附件</button
+                <button type="button" id="attachFile" class="text-button">＋ Attach</button
                 ><input type="file" id="fileInput" hidden /><span id="composerHint"
-                  >房间成员都能看到 · 模式决定谁被唤醒</span
+                  >Everyone in the room sees this · the mode decides who wakes up</span
                 ><button type="submit" id="sendButton" class="button send-button">
-                  发送 <span>↗</span>
+                  Send <span>↗</span>
                 </button>
               </div>
             </form>
           </main>
-          <aside id="inspector" class="inspector" aria-label="详情检查器"></aside>
+          <aside id="inspector" class="inspector" aria-label="Details"></aside>
         </div>
       </div>
     </div>
     <div id="offline" class="offline-overlay" hidden>
       <div class="offline-card">
         <span class="brand-mark">p</span>
-        <h2>正在连接本机服务</h2>
-        <p>Portage 的数据都在你的电脑上。请在项目目录启动服务：</p>
+        <h2>Connecting to the local service</h2>
+        <p>Portage keeps everything on your computer. Start the service from the project folder:</p>
         <pre>npm run daemon:serve</pre>
-        <p class="offline-detail" id="offlineDetail">每 2 秒自动重试</p>
+        <p class="offline-detail" id="offlineDetail">Retrying every 2 seconds</p>
       </div>
     </div>
     <dialog id="rulesDialog" class="dialog rules-dialog">
       <form method="dialog">
         <header>
           <div>
-            <span class="room-eyebrow">每次发布都会留一个版本</span>
-            <h2>协作约定</h2>
+            <span class="room-eyebrow">Every publish keeps a version</span>
+            <h2>Room rules</h2>
           </div>
-          <button class="dialog-close" aria-label="关闭规则">×</button>
+          <button class="dialog-close" aria-label="Close rules">×</button>
         </header>
       </form>
       <div class="rule-scope">
-        <button data-scope="global">全局 · PORTAGE.md</button
-        ><button data-scope="room" class="selected">本房间 · collaboration.md</button>
+        <button data-scope="global">Global · PORTAGE.md</button
+        ><button data-scope="room" class="selected">This room · collaboration.md</button>
       </div>
       <p class="dialog-description" id="rulesDescription"></p>
       <div class="rules-editor-wrap">
-        <textarea id="rulesEditor" spellcheck="false" aria-label="Markdown 规则正文"></textarea>
-        <button type="button" id="insertFrontmatter" class="text-button insert-frontmatter">＋ 插入策略头</button>
+        <textarea id="rulesEditor" spellcheck="false" aria-label="Rules (Markdown)"></textarea>
+        <button type="button" id="insertFrontmatter" class="text-button insert-frontmatter">＋ Insert policy header</button>
       </div>
       <div id="rulesPolicy" class="rules-policy" aria-live="polite"></div>
       <div class="rule-options">
         <label
-          >自动轮次<input id="roundBudget" type="number" min="1" max="100" value="4" /></label
+          >Auto rounds<input id="roundBudget" type="number" min="1" max="100" value="4" /></label
         ><label
-          >每分钟 AI 消息<input id="messageBudget" type="number" min="1" max="1000" value="12"
+          >AI messages / min<input id="messageBudget" type="number" min="1" max="1000" value="12"
         /></label
         ><label
-          >同时工作上限<input id="seatBudget" type="number" min="1" max="20" value="2" /></label
+          >Working at once<input id="seatBudget" type="number" min="1" max="20" value="2" /></label
         ><label
-          >每条链路唤醒<input id="wakeupBudget" type="number" min="1" max="1000" value="20"
+          >Wake-ups per thread<input id="wakeupBudget" type="number" min="1" max="1000" value="20"
         /></label>
       </div>
       <footer>
-        <span id="rulesValidation">额度发布后立即生效，正文从下一次投递起生效</span
-        ><button id="publishRules" class="button send-button">发布规则</button>
+        <span id="rulesValidation">Limits apply right away; the text applies from the next delivery</span
+        ><button id="publishRules" class="button send-button">Publish</button>
       </footer>
     </dialog>
     <dialog id="membersDialog" class="dialog members-dialog">
       <form method="dialog">
         <header>
           <div>
-            <span class="room-eyebrow">从已登记的会话中选择</span>
-            <h2>添加房间成员</h2>
+            <span class="room-eyebrow">Pick from your registered sessions</span>
+            <h2>Add members</h2>
           </div>
-          <button class="dialog-close" aria-label="关闭成员选择">×</button>
+          <button class="dialog-close" aria-label="Close">×</button>
         </header>
       </form>
       <div id="memberOptions"></div>
@@ -262,14 +262,14 @@
       <form method="dialog">
         <header>
           <div>
-            <span class="room-eyebrow">这台电脑上的 AI 会话</span>
-            <h2>登记本机会话</h2>
+            <span class="room-eyebrow">AI sessions on this computer</span>
+            <h2>Find local sessions</h2>
           </div>
-          <button class="dialog-close" aria-label="关闭发现列表">×</button>
+          <button class="dialog-close" aria-label="Close">×</button>
         </header>
       </form>
       <p class="dialog-description">
-        Portage 会找到你在本机用过的 Codex 和 Claude 会话。登记后它们保留原来的身份和记忆：支持原生回合的可以被自动唤醒，其余通过收件箱送达。
+        Portage finds the Codex and Claude sessions you have used on this computer. Once added, they keep their own identity and memory: sessions with native turns can be woken automatically; the rest receive messages through an inbox.
       </p>
       <div id="discoverOptions"></div>
     </dialog>
@@ -277,10 +277,10 @@
       <form method="dialog">
         <header>
           <div>
-            <span class="room-eyebrow">一字不差的投递内容</span>
-            <h2 id="queryTitle">它会收到什么</h2>
+            <span class="room-eyebrow">Exactly what gets delivered</span>
+            <h2 id="queryTitle">What they receive</h2>
           </div>
-          <button class="dialog-close" aria-label="关闭预览">×</button>
+          <button class="dialog-close" aria-label="Close preview">×</button>
         </header>
       </form>
       <p class="dialog-description" id="queryDescription"></p>
@@ -290,22 +290,22 @@
     <dialog id="nameDialog" class="dialog name-dialog">
       <form id="nameForm">
         <header>
-          <h2 id="nameDialogTitle">新建房间</h2>
-          <button type="button" id="closeName" class="dialog-close" aria-label="关闭">×</button>
+          <h2 id="nameDialogTitle">New room</h2>
+          <button type="button" id="closeName" class="dialog-close" aria-label="Close">×</button>
         </header>
-        <label id="nameLabel" for="nameInput">房间名称</label
+        <label id="nameLabel" for="nameInput">Room name</label
         ><input id="nameInput" required maxlength="50" autocomplete="off" />
         <p id="nameDescription" class="dialog-description"></p>
-        <footer><button type="submit" class="button send-button">确认</button></footer>
+        <footer><button type="submit" class="button send-button">Done</button></footer>
       </form>
     </dialog>
-    <dialog id="palette" class="palette" aria-label="命令面板">
+    <dialog id="palette" class="palette" aria-label="Command palette">
       <div class="palette-input">
         <span class="palette-glyph">⌘</span
-        ><input id="paletteInput" autocomplete="off" spellcheck="false" placeholder="跳转到房间、会话，或执行一个操作…" aria-controls="paletteList" /><kbd>esc</kbd>
+        ><input id="paletteInput" autocomplete="off" spellcheck="false" placeholder="Jump to a room or session, or run an action…" aria-controls="paletteList" /><kbd>esc</kbd>
       </div>
       <div id="paletteList" class="palette-list" role="listbox"></div>
-      <footer><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>↵</kbd> 执行</span><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 切换视图</span><span><kbd>/</kbd> 写消息</span></footer>
+      <footer><span><kbd>↑</kbd><kbd>↓</kbd> select</span><span><kbd>↵</kbd> run</span><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> switch view</span><span><kbd>/</kbd> write</span></footer>
     </dialog>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script type="module" src="/src/main.ts"></script>

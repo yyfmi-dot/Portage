@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileContext } from "./context.js";
+import { compileContext, markedMessageIds } from "./context.js";
 import type { Message, PolicyDocument } from "./types.js";
 
 const message: Message = {
@@ -38,9 +38,9 @@ describe("compileContext", () => {
       recipientLabel: "Lead · 统筹路由",
       maxContextBytes: 32768,
     });
-    expect(snap.layers).toContain("房间 collaboration.md");
-    expect(snap.layers).toContain("原始消息");
-    expect(snap.query).toContain("不改写原生身份");
+    expect(snap.layers).toContain("Room collaboration.md");
+    expect(snap.layers).toContain("Original message");
+    expect(snap.query).toContain("never rewrites your native identity");
     expect(snap.query).toContain("请审查适配器");
     expect(snap.revisions.room).toBe(3);
     expect(snap.dropped).toEqual([]);
@@ -56,8 +56,8 @@ describe("compileContext", () => {
       recipientLabel: "Builder",
       maxContextBytes: 600,
     });
-    expect(snap.dropped).toEqual(["全局 PORTAGE.md"]);
-    expect(snap.layers).toContain("房间 collaboration.md");
+    expect(snap.dropped).toEqual(["Global PORTAGE.md"]);
+    expect(snap.layers).toContain("Room collaboration.md");
     expect(snap.revisions.global).toBeUndefined();
     expect(snap.query).toContain("请审查适配器");
     expect(snap.overflow).toBe(false);
@@ -68,15 +68,23 @@ describe("compileContext", () => {
     const long = { ...message, parts: [{ kind: "text" as const, text: "长".repeat(400) }] };
     const snap = compileContext({ room, message: long, recipientLabel: "Builder", maxContextBytes: 300 });
     expect(snap.overflow).toBe(true);
-    expect(snap.dropped).toEqual(["房间 collaboration.md"]);
+    expect(snap.dropped).toEqual(["Room collaboration.md"]);
     expect(snap.query).toContain("长".repeat(400));
   });
 
   it("tells room recipients how to answer through Portage, quoting the message id", () => {
     const snap = compileContext({ message, recipientLabel: "Builder", replyThroughPortage: true, maxContextBytes: 32768 });
-    expect(snap.layers.at(-1)).toBe("回复方式");
+    expect(snap.layers.at(-1)).toBe("How to reply");
     expect(snap.query).toContain("replyToMessageId=m1");
     const direct = compileContext({ message, recipientLabel: "Builder", maxContextBytes: 32768 });
-    expect(direct.layers).not.toContain("回复方式");
+    expect(direct.layers).not.toContain("How to reply");
+  });
+});
+
+describe("markedMessageIds", () => {
+  it("finds the marker compileContext writes, and the pre-1.0 Chinese marker still in older transcripts", () => {
+    const snap = compileContext({ message, recipientLabel: "Builder", maxContextBytes: 32768 });
+    expect(markedMessageIds(snap.query)).toEqual(["m1"]);
+    expect(markedMessageIds("[原始消息 · v2 · msg_old]\nhello")).toEqual(["msg_old"]);
   });
 });

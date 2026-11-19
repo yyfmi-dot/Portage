@@ -384,7 +384,7 @@
   color: var(--muted);
 }
 .wake-label {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 11px;
   letter-spacing: 0.5px;
   color: #b0754a;
@@ -564,7 +564,7 @@
   align-items: center;
   gap: 12px;
   margin: 18px 0 4px;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 11px;
   color: var(--muted);
 }
@@ -634,7 +634,7 @@
   box-shadow: 0 0 8px #e3a16d55;
 }
 .countdown {
-  font-family: var(--mono);
+  font-family: var(--sans);
   color: #b0754a;
   white-space: nowrap;
 }
@@ -739,7 +739,7 @@
 }
 .policy-chip em {
   font-style: normal;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 11px;
   color: var(--muted);
 }
@@ -821,7 +821,7 @@
 }
 .palette-group {
   padding: 10px 10px 4px;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 11px;
   letter-spacing: 1px;
   color: var(--muted);
@@ -990,7 +990,7 @@
 }
 .native-event header time {
   margin-left: auto;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 11px;
 }
 .native-event header button {
@@ -1040,7 +1040,7 @@
   align-items: center;
   gap: 10px;
   margin: 12px 0;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 11px;
   color: var(--faint);
 }

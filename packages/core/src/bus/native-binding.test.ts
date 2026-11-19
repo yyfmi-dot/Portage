@@ -161,7 +161,7 @@ describe("native read-back", () => {
     const sent = await dm("s_lead", "可能没送到", "u1");
     const id = sent.deliveries[0]!.id;
     expect(state(id).state).toBe("uncertain");
-    const marker = `[原始消息 · v1 · ${sent.message.id}]`;
+    const marker = `[Original message · v1 · ${sent.message.id}]`;
 
     bus.recordNativeRead("s_builder", "codex-native", { observations: [{ nativeEventId: "B0", nativeTime: "t", kind: "input", text: marker }], cursor: 1, source: "/b" });
     expect(state(id).state).toBe("uncertain");
@@ -236,12 +236,12 @@ describe("native input lock and turn execution", () => {
     expect(bus.runtime.get("s_lead")?.execution).toBe("running");
     const second = (await dm("s_lead", "第二轮", "r2")).deliveries[0]!.id;
     expect(state(second)).toMatchObject({ state: "queued", reason: "busy" });
-    await bus.reportExecution("s_lead", "idle", "原生回合失败：model refused");
+    await bus.reportExecution("s_lead", "idle", "Native turn failed: model refused");
     expect(state(second).state).toBe("submitted");
     expect(bus.runtime.get("s_lead")).toMatchObject({ execution: "running" });
     expect(bus.events.filter((e) => e.eventType === "SessionExecutionChanged").map((e) => e.payload)).toContainEqual({
       execution: "idle",
-      detail: "原生回合失败：model refused",
+      detail: "Native turn failed: model refused",
     });
   });
 });
@@ -284,10 +284,10 @@ describe("context overflow", () => {
 
     const fits = await bus.send({ conversationId: room.id, senderId: "user", target: { kind: "room", id: room.id }, text: "短消息", idempotencyKey: "o1", source: "user" });
     const fitSnapshot = bus.contextSnapshots.get(fits.deliveries[0]!.id)!;
-    expect(fitSnapshot.dropped).toContain("房间 collaboration.md");
+    expect(fitSnapshot.dropped).toContain("Room collaboration.md");
     expect(fitSnapshot.overflow).toBe(false);
     expect(fitSnapshot.query).toContain("短消息");
-    expect(fitSnapshot.layers).toEqual(expect.arrayContaining(["原始消息", "回复方式"]));
+    expect(fitSnapshot.layers).toEqual(expect.arrayContaining(["Original message", "How to reply"]));
 
     const long = "长".repeat(800);
     const big = await bus.send({ conversationId: room.id, senderId: "user", target: { kind: "room", id: room.id }, text: long, idempotencyKey: "o2", source: "user" });

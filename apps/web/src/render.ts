@@ -1,5 +1,5 @@
 import { $, stateLabels, ui, model, session, room } from "./state.js";
-import { escapeHtml, statusFor, queueFor } from "./format.js";
+import { escapeHtml, statusFor, queueFor, plural } from "./format.js";
 import { renderOffice } from "./office.js";
 import { hostLabel } from "./model.js";
 import { renderChat, renderComposer } from "./chat.js";
@@ -31,9 +31,9 @@ export function renderConnection() {
   $("connectionDot").classList.toggle("offline", !ui.connected);
   $("connectionDot").classList.toggle("syncing", ui.connected && !ui.streamOpen);
   $("workspaceDot").classList.toggle("offline", !ui.connected);
-  $("connectionLabel").textContent = !ui.connected ? "本机服务未连接" : ok ? "本机服务 · 实时同步" : "已连接 · 正在恢复实时同步";
+  $("connectionLabel").textContent = !ui.connected ? "Local service offline" : ok ? "Local service · live" : "Connected · reconnecting live updates";
   if (ui.model) {
-    $("daemonLabel").textContent = `本机服务 · ${ui.model.sessions.length} 个会话`;
+    $("daemonLabel").textContent = `Local service · ${plural(ui.model.sessions.length, "session")}`;
   }
 }
 
@@ -41,7 +41,7 @@ export function renderSidebar() {
   $("roomList").innerHTML = model()
     .rooms.map(
       (item) =>
-        `<button class="room-nav ${ui.selection.kind === "room" && item.id === ui.roomId ? "active" : ""}" data-room="${item.id}" data-drop-room="${item.id}"><span class="room-symbol">${escapeHtml([...item.name][0] ?? "房")}</span><span>${escapeHtml(item.name)}</span><small>${item.paused ? "已暂停" : item.members.length}</small></button>`,
+        `<button class="room-nav ${ui.selection.kind === "room" && item.id === ui.roomId ? "active" : ""}" data-room="${item.id}" data-drop-room="${item.id}"><span class="room-symbol">${escapeHtml([...item.name][0] ?? "R")}</span><span>${escapeHtml(item.name)}</span><small>${item.paused ? "Paused" : item.members.length}</small></button>`,
     )
     .join("");
   const query = ($("sessionSearch") as HTMLInputElement).value.trim().toLowerCase();
@@ -77,18 +77,18 @@ export function renderHeader() {
   const target = direct ? session(ui.selection.id) : undefined;
   const current = room();
   $("currentLocation").textContent = target?.name ?? current.name;
-  $("roomEyebrow").textContent = target ? `${target.provider} · ${target.host}` : "协作房间";
+  $("roomEyebrow").textContent = target ? `${target.provider} · ${target.host}` : "Room";
   $("viewTitle").textContent = target?.name ?? current.name;
   $("viewSubtitle").textContent = target
-    ? `${target.writable ? "可以直接发消息给它" : "只读，只能查看记录"} · 在房间里用 @${target.alias} 叫它`
-    : "把不同来源的 AI 会话请进同一个房间，一起把事情做完。";
-  $("roomRulesLabel").textContent = `协作约定 v${current.revision}`;
+    ? `${target.writable ? "Message it directly" : "Read-only: you can view its record"} · call it with @${target.alias} in a room`
+    : "Bring AI sessions from different tools into one room and get things done together.";
+  $("roomRulesLabel").textContent = `Room rules v${current.revision}`;
   $("addMember").hidden = direct;
   $("roomRules").hidden = direct;
   ($("wakeMode") as HTMLSelectElement).value = current.mode;
   ($("wakeMode") as HTMLSelectElement).disabled = direct;
   $("pauseRoom").hidden = direct;
-  $("pauseRoom").textContent = current.paused ? "恢复自动通信" : "暂停自动通信";
+  $("pauseRoom").textContent = current.paused ? "Resume auto-messaging" : "Pause auto-messaging";
   for (const button of document.querySelectorAll<HTMLButtonElement>("[data-view]")) {
     button.setAttribute("aria-selected", String(button.dataset.view === ui.view));
     button.disabled = direct && button.dataset.view !== "chat";

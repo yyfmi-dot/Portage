@@ -150,7 +150,7 @@ describe.skipIf(process.platform === "win32")("daemon · native Codex room", () 
     const lead = await get("/api/sessions/s_codex_th-lead/native");
     const inputs = lead.events.filter((e: Json) => e.kind === "input" && e.correlation === "exact");
     expect(inputs).toHaveLength(3);
-    expect(inputs[0].text).toContain("[回复方式]");
+    expect(inputs[0].text).toContain("[How to reply]");
     expect(inputs[0].text).toContain("实现 JSONL 解析器并评审");
     const outputs = lead.events.filter((e: Json) => e.kind === "output" && e.correlation === "inferred");
     expect(outputs.map((e: Json) => e.text)).toContain("总结：解析器已实现并通过评审");
@@ -164,7 +164,7 @@ describe.skipIf(process.platform === "win32")("daemon · native Codex room", () 
     const first = await post(`/api/conversations/${dm.id}/send`, { text: "这一轮会失败", target: { kind: "participant", id: "p_codex_th-builder" }, idempotencyKey: "fail-1" });
     expect(first.json.deliveries[0].state).toBe("submitted");
     let snap = await settle();
-    expect(snap.runtimes["s_codex_th-builder"]).toMatchObject({ execution: "idle", detail: "原生回合失败：model refused" });
+    expect(snap.runtimes["s_codex_th-builder"]).toMatchObject({ execution: "idle", detail: "Native turn failed: model refused" });
 
     delete process.env.FAKE_CODEX_MODE;
     const second = await post(`/api/conversations/${dm.id}/send`, { text: "再来一次", target: { kind: "participant", id: "p_codex_th-builder" }, idempotencyKey: "fail-2" });

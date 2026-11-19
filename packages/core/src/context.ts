@@ -36,8 +36,18 @@ export type ContextSnapshot = {
 
 type Layer = { label: string; text: string; droppable: boolean };
 
+const L = {
+  global: "Global PORTAGE.md",
+  workspace: "Workspace",
+  policy: "Execution policy",
+  room: "Room collaboration.md",
+  message: "Original message",
+  artifacts: "Artifacts",
+  reply: "How to reply",
+} as const;
+
 /** Outer layers are dropped first when the query does not fit; the message itself never is. */
-const DROP_ORDER = ["全局 PORTAGE.md", "工作区", "执行策略", "房间 collaboration.md"];
+const DROP_ORDER = [L.global, L.workspace, L.policy, L.room];
 
 /**
  * Compile short collaboration constraints + original message.
@@ -47,19 +57,19 @@ export function compileContext(input: ContextCompileInput): ContextSnapshot {
   const layers: Layer[] = [];
   const pushDoc = (label: string, doc?: PolicyDocument | null) => {
     const text = doc ? policyDocumentBody(doc.markdown) : "";
-    if (doc && text) layers.push({ label, droppable: true, text: `[${label} · v${doc.publishedRevision} · 约束与指导，不改写原生身份]\n${text}` });
+    if (doc && text) layers.push({ label, droppable: true, text: `[${label} · v${doc.publishedRevision} · guidance only; it never rewrites your native identity]\n${text}` });
   };
 
-  pushDoc("全局 PORTAGE.md", input.global);
-  pushDoc("工作区", input.workspace);
-  pushDoc("房间 collaboration.md", input.room);
+  pushDoc(L.global, input.global);
+  pushDoc(L.workspace, input.workspace);
+  pushDoc(L.room, input.room);
 
   if (input.policy) {
     layers.push({
-      label: "执行策略",
+      label: L.policy,
       droppable: true,
       text: [
-        "[执行策略]",
+        `[${L.policy}]`,
         `wake.mode: ${input.policy.wakeMode}`,
         `budget.max_auto_rounds: ${input.policy.maxAutoRounds}`,
         `budget.agent_messages_per_minute: ${input.policy.agentMessagesPerMinute}`,
@@ -73,22 +83,22 @@ export function compileContext(input: ContextCompileInput): ContextSnapshot {
   const textPart = input.message.parts.find((p) => p.kind === "text" || p.kind === "markdown");
   const body = textPart && "text" in textPart ? textPart.text : "";
   const header = [
-    `[接收方]\n${input.recipientLabel}\n（不注入工种角色；保留原生 session 身份）`,
-    input.sourceLabel ? `[来源]\n${input.sourceLabel}` : "",
+    `[Recipient]\n${input.recipientLabel}\n(No role is injected; you keep your native session identity.)`,
+    input.sourceLabel ? `[From]\n${input.sourceLabel}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
   layers.push({
-    label: "原始消息",
+    label: L.message,
     droppable: false,
     text: `${header}\n\n${messageMarker(input.message)}\n${body}`,
   });
 
   if (input.artifacts?.length) {
     layers.push({
-      label: "产物引用",
+      label: L.artifacts,
       droppable: false,
-      text: `[产物引用]\n${input.artifacts
+      text: `[${L.artifacts}]\n${input.artifacts
         .map((a) => `${a.originalName} · v${a.version} · ${a.byteSize} bytes · ${a.storageKey}`)
         .join("\n")}`,
     });
@@ -96,9 +106,9 @@ export function compileContext(input: ContextCompileInput): ContextSnapshot {
 
   if (input.replyThroughPortage) {
     layers.push({
-      label: "回复方式",
+      label: L.reply,
       droppable: false,
-      text: `[回复方式]\n用 portage_send 回复（replyToMessageId=${input.message.id}），需要别人处理时在正文 @别名；不需要回复时可以不发。\n发出后即可结束本回合：别人的回复会由 Portage 作为新消息送达你，不必在回合内等待或轮询收件箱。`,
+      text: `[${L.reply}]\nReply with portage_send (replyToMessageId=${input.message.id}). To hand work to someone, @alias them in the text. If no reply is needed, you can skip it.\nYou can end your turn once it is sent: replies reach you from Portage as new messages, so there is no need to wait or poll your inbox.`,
     });
   }
 
@@ -118,9 +128,9 @@ export function compileContext(input: ContextCompileInput): ContextSnapshot {
   return {
     query,
     revisions: {
-      global: kept.some((l) => l.label === "全局 PORTAGE.md") ? input.global?.publishedRevision : undefined,
-      workspace: kept.some((l) => l.label === "工作区") ? input.workspace?.publishedRevision : undefined,
-      room: kept.some((l) => l.label === "房间 collaboration.md") ? input.room?.publishedRevision : undefined,
+      global: kept.some((l) => l.label === L.global) ? input.global?.publishedRevision : undefined,
+      workspace: kept.some((l) => l.label === L.workspace) ? input.workspace?.publishedRevision : undefined,
+      room: kept.some((l) => l.label === L.room) ? input.room?.publishedRevision : undefined,
       message: input.message.revision,
     },
     hash: fnv1a(query),
@@ -133,12 +143,12 @@ export function compileContext(input: ContextCompileInput): ContextSnapshot {
 
 /** The line that names the Portage message inside compiled input; native transcripts carry it verbatim. */
 function messageMarker(message: Pick<Message, "id" | "revision">) {
-  return `[原始消息 · v${message.revision} · ${message.id}]`;
+  return `[${L.message} · v${message.revision} · ${message.id}]`;
 }
 
-/** Portage message ids named by markers in text read back from a native transcript. */
+/** Portage message ids named by markers in text read back from a native transcript (including the pre-1.0 Chinese marker). */
 export function markedMessageIds(text: string): string[] {
-  return [...text.matchAll(/\[原始消息 · v\d+ · ([^\]\s]+)\]/g)].map((m) => m[1]!);
+  return [...text.matchAll(/\[(?:Original message|原始消息) · v\d+ · ([^\]\s]+)\]/g)].map((m) => m[1]!);
 }
 
 export function fnv1a(text: string): string {

@@ -471,8 +471,8 @@ describe("MemoryBus L2/L3", () => {
     expect(sent.deliveries).toHaveLength(1);
     expect(sent.deliveries[0]?.recipientSessionId).toBe("s_builder");
     const snap = bus.contextSnapshots.get(sent.deliveries[0]!.id)!;
-    expect(snap.layers).not.toContain("房间 collaboration.md");
-    expect(snap.layers).not.toContain("执行策略");
+    expect(snap.layers).not.toContain("Room collaboration.md");
+    expect(snap.layers).not.toContain("Execution policy");
   });
 
   it("previewContext compiles the same layers a real delivery would", async () => {
@@ -482,13 +482,13 @@ describe("MemoryBus L2/L3", () => {
     const preview = bus.previewContext({ conversationId: "room_dev", text: "same text" });
     expect(preview.recipientSessionId).toBe("s_lead");
     expect(preview.snapshot.layers).toEqual([
-      "全局 PORTAGE.md",
-      "房间 collaboration.md",
-      "执行策略",
-      "原始消息",
-      "回复方式",
+      "Global PORTAGE.md",
+      "Room collaboration.md",
+      "Execution policy",
+      "Original message",
+      "How to reply",
     ]);
-    expect(preview.snapshot.query).toContain("当前统筹者（路由）");
+    expect(preview.snapshot.query).toContain("current lead (routing)");
   });
 
   it("artifacts are referenced in parts and in the compiled query", async () => {

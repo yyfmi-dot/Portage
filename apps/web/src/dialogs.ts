@@ -11,10 +11,10 @@ export function showSnapshot(snapshot: ContextSnapshot, title: string, descripti
   $("queryDescription").textContent = description;
   $("queryMeta").innerHTML = [
     ...snapshot.layers.map((l) => `<span class="layer">${escapeHtml(l)}</span>`),
-    `<span title="内容指纹">${snapshot.hash}</span>`,
+    `<span title="Content hash">${snapshot.hash}</span>`,
     `<span>${formatBytes(snapshot.byteSize)}</span>`,
-    ...(snapshot.dropped ?? []).map((l) => `<span class="warn">超长省略了 ${escapeHtml(l)}</span>`),
-    snapshot.overflow ? '<span class="warn">消息本身就超出了上下文上限，没有送出</span>' : "",
+    ...(snapshot.dropped ?? []).map((l) => `<span class="warn">Dropped for length: ${escapeHtml(l)}</span>`),
+    snapshot.overflow ? '<span class="warn">The message alone exceeds the context limit, so it was not sent</span>' : "",
   ].join("");
   $("queryPreview").textContent = snapshot.query;
   const dialog = $("queryDialog") as HTMLDialogElement;
@@ -22,10 +22,10 @@ export function showSnapshot(snapshot: ContextSnapshot, title: string, descripti
 }
 
 export const BUDGET_INPUTS = [
-  { id: "roundBudget", key: "maxAutoRounds", label: "自动轮次", min: 1, max: 100 },
-  { id: "messageBudget", key: "agentMessagesPerMinute", label: "每分钟 AI 消息", min: 1, max: 1000 },
-  { id: "seatBudget", key: "maxConcurrent", label: "同时工作上限", min: 1, max: 20 },
-  { id: "wakeupBudget", key: "maxWakeupsPerTrace", label: "每条链路唤醒", min: 1, max: 1000 },
+  { id: "roundBudget", key: "maxAutoRounds", label: "Auto rounds", min: 1, max: 100 },
+  { id: "messageBudget", key: "agentMessagesPerMinute", label: "AI messages / min", min: 1, max: 1000 },
+  { id: "seatBudget", key: "maxConcurrent", label: "Working at once", min: 1, max: 20 },
+  { id: "wakeupBudget", key: "maxWakeupsPerTrace", label: "Wake-ups per thread", min: 1, max: 1000 },
 ] as const;
 
 export const FRONTMATTER_LABELS: Record<string, string> = {
@@ -57,8 +57,8 @@ export function showRules(scope: "room" | "global") {
   $("insertFrontmatter").hidden = scope === "global";
   $("rulesDescription").textContent =
     scope === "global"
-      ? `全局约定 v${model().globalRevision}：每个房间、每次送达都会带上它。`
-      : `「${current.name}」的协作约定 v${current.revision}：正文告诉成员怎么配合；开头可选的 YAML 策略头会被校验后直接执行。`;
+      ? `Global rules v${model().globalRevision}: sent with every delivery in every room.`
+      : `Rules for “${current.name}”, v${current.revision}. The text tells members how to work together; an optional YAML policy header at the top is validated and enforced.`;
   for (const button of document.querySelectorAll<HTMLButtonElement>("[data-scope]"))
     button.classList.toggle("selected", button.dataset.scope === scope);
   validateRules();
@@ -80,9 +80,9 @@ export function validateRules(): boolean {
     const n = Number(el.value);
     const bad = !el.disabled && (!Number.isInteger(n) || n < input.min || n > input.max);
     el.classList.toggle("invalid", bad);
-    if (bad) problems.push(`${input.label} 需为 ${input.min}–${input.max} 的整数`);
+    if (bad) problems.push(`${input.label} must be a whole number from ${input.min} to ${input.max}`);
   }
-  if (!text.trim()) problems.push("正文不能为空");
+  if (!text.trim()) problems.push("The text can't be empty");
   let parsed: ParsedPolicyDocument | undefined;
   try {
     parsed = parsePolicyDocument(text);
@@ -96,12 +96,12 @@ export function validateRules(): boolean {
       const s = session(id)!;
       return s.alias === ref || s.id === ref || s.participantId === ref;
     });
-    if (!ok) problems.push(`wake.coordinator "${parsed.policy.coordinator}" 不是房间当前成员`);
+    if (!ok) problems.push(`wake.coordinator "${parsed.policy.coordinator}" is not a member of this room`);
   }
   publish.disabled = problems.length > 0;
   if (problems.length) {
     out.className = "rules-policy invalid";
-    setHtml(out, `<b>无法发布</b>${problems.map((p) => `<span>${escapeHtml(p)}</span>`).join("")}`);
+    setHtml(out, `<b>Can't publish</b>${problems.map((p) => `<span>${escapeHtml(p)}</span>`).join("")}`);
     return false;
   }
   const effective = Object.entries(parsed?.policy ?? {}).filter(([key]) => key !== "version");
@@ -110,22 +110,22 @@ export function validateRules(): boolean {
     setHtml(
       out,
       parsed?.hasFrontmatter
-        ? "<b>提示</b><span>全局约定里的策略头不会执行，只有正文会送给成员。</span>"
-        : "<b>正文</b><span>从下一次送达起生效。</span>",
+        ? "<b>Note</b><span>Policy headers in global rules are not enforced; only the text is sent to members.</span>"
+        : "<b>Text</b><span>Applies from the next delivery.</span>",
     );
     return true;
   }
   setHtml(out, effective.length
-    ? `<b>发布后会执行</b>${effective
+    ? `<b>Enforced once published</b>${effective
         .map(([key, value]) => `<span class="policy-chip"><em>${FRONTMATTER_LABELS[key] ?? key}</em>${escapeHtml(key === "wakeMode" ? modeLabel(String(value)) : value)}</span>`)
-        .join("")}<small>策略头里的值优先于下面的输入框</small>`
-    : "<b>只有正文</b><span>额度以下面的输入为准。点「插入策略头」可以把它们写进文档，跟着版本一起保存。</span>");
+        .join("")}<small>Values in the policy header win over the fields below</small>`
+    : "<b>Text only</b><span>Limits come from the fields below. “Insert policy header” writes them into the document so they are versioned with it.</span>");
   return true;
 }
 
 export function insertFrontmatter() {
   const editor = $("rulesEditor") as HTMLTextAreaElement;
-  if (/^\s*---\s*\n/.test(editor.value)) return toast("文档已有策略头");
+  if (/^\s*---\s*\n/.test(editor.value)) return toast("The document already has a policy header");
   const current = room();
   const lead = current.coordinator ? session(current.coordinator) : undefined;
   const value = (id: string) => ($(id) as HTMLInputElement).value;
@@ -166,21 +166,21 @@ export async function publishRules() {
         maxWakeupsPerTrace: budget("wakeupBudget"),
       });
     ($("rulesDialog") as HTMLDialogElement).close();
-  }, "已发布：额度立即生效，正文从下一次送达起使用");
+  }, "Published: limits apply now, the text from the next delivery");
 }
 
 export function renderMemberOptions() {
   $("memberOptions").innerHTML = model()
     .sessions.map((item) => {
       const joined = room().members.includes(item.id);
-      return `<div class="member-option"><span class="avatar ${item.provider === "Claude" ? "claude" : ""}">${initial(item)}</span><span class="member-info"><b>${escapeHtml(item.name)}</b><small title="${escapeHtml(item.nativeIdentity)}">${item.provider} · ${item.host}</small></span><button data-add-session="${item.id}" ${joined ? "disabled" : ""}>${joined ? "已加入" : "加入"}</button></div>`;
+      return `<div class="member-option"><span class="avatar ${item.provider === "Claude" ? "claude" : ""}">${initial(item)}</span><span class="member-info"><b>${escapeHtml(item.name)}</b><small title="${escapeHtml(item.nativeIdentity)}">${item.provider} · ${item.host}</small></span><button data-add-session="${item.id}" ${joined ? "disabled" : ""}>${joined ? "Added" : "Add"}</button></div>`;
     })
     .join("");
 }
 
 export async function showDiscover() {
   const dialog = $("discoverDialog") as HTMLDialogElement;
-  $("discoverOptions").innerHTML = '<p class="dialog-description">正在查找这台电脑上的会话…</p>';
+  $("discoverOptions").innerHTML = '<p class="dialog-description">Looking for sessions on this computer…</p>';
   if (!dialog.open) dialog.showModal();
   try {
     const { endpoints } = await api.discover();
@@ -192,10 +192,10 @@ export async function showDiscover() {
 
 function endpointFacts(e: DiscoveredEndpoint) {
   return [
-    e.adapterId ? "可以自动唤醒" : "通过收件箱收消息",
-    e.attached ? "正开在一个窗口里" : "",
+    e.adapterId ? "can be woken automatically" : "receives through an inbox",
+    e.attached ? "open in a window" : "",
     e.workdir ? e.workdir.split("/").slice(-2).join("/") : "",
-    e.updatedAt ? `活跃于 ${timeLabel(Date.parse(e.updatedAt))}` : "",
+    e.updatedAt ? `active ${timeLabel(Date.parse(e.updatedAt))}` : "",
   ].filter(Boolean);
 }
 
@@ -204,18 +204,18 @@ export function renderDiscover(endpoints: DiscoveredEndpoint[]) {
     ? endpoints
         .map(
           (e) =>
-            `<div class="member-option"><span class="avatar ${e.provider === "claude" ? "claude" : ""}">${providerLabel(e.provider)[0]}</span><span class="member-info"><b>${escapeHtml(e.displayName)}</b><small title="${escapeHtml(e.nativeSessionId)}">${providerLabel(e.provider)} · ${hostLabel(e.host)} · ${escapeHtml(endpointFacts(e).join(" · "))}</small></span><button data-register='${escapeHtml(JSON.stringify(e))}' ${e.registered ? "disabled" : ""}>${e.registered ? "已登记" : "登记"}</button></div>`,
+            `<div class="member-option"><span class="avatar ${e.provider === "claude" ? "claude" : ""}">${providerLabel(e.provider)[0]}</span><span class="member-info"><b>${escapeHtml(e.displayName)}</b><small title="${escapeHtml(e.nativeSessionId)}">${providerLabel(e.provider)} · ${hostLabel(e.host)} · ${escapeHtml(endpointFacts(e).join(" · "))}</small></span><button data-register='${escapeHtml(JSON.stringify(e))}' ${e.registered ? "disabled" : ""}>${e.registered ? "Added" : "Add"}</button></div>`,
         )
         .join("")
-    : '<div class="dialog-empty"><span class="mascot" aria-hidden="true"><i class="agent-head"></i><i class="agent-body"></i></span><b>还没找到会话</b><p>Portage 会自动发现你在这台电脑上用过的 Codex 和 Claude 会话。</p><ol><li>打开终端，运行 <code>codex</code> 或 <code>claude</code></li><li>随便聊一句，让它留下会话记录</li><li>回到这里，点左侧「会话来源」旁的 ＋</li></ol></div>';
+    : '<div class="dialog-empty"><span class="mascot" aria-hidden="true"><i class="agent-head"></i><i class="agent-body"></i></span><b>No sessions found yet</b><p>Start one in a terminal and it shows up here.</p><ol><li>Open a terminal and run <code>codex</code> or <code>claude</code></li><li>Say anything, so it leaves a session record</li><li>Come back and click ＋ next to “Sessions” on the left</li></ol></div>';
 }
 
-export function showNameDialog(title: string, label: string, initialValue: string, description: string, callback: (value: string) => Promise<void> | void) {
+export function showNameDialog(title: string, label: string, initialValue: string, description: string, callback: (value: string) => Promise<void> | void, maxLength = 50) {
   ui.nameAction = callback;
   $("nameDialogTitle").textContent = title;
   $("nameLabel").textContent = label;
   ($("nameInput") as HTMLInputElement).value = initialValue;
-  ($("nameInput") as HTMLInputElement).maxLength = title.includes("修订") ? 4000 : 50;
+  ($("nameInput") as HTMLInputElement).maxLength = maxLength;
   $("nameDescription").textContent = description;
   ($("nameDialog") as HTMLDialogElement).showModal();
   $("nameInput").focus();

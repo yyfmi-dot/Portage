@@ -291,7 +291,7 @@ route("POST", "/api/agent/:session/inbox", ({ runtime, params, body }) => {
   const items = unread.slice(0, limit).map(({ delivery, message, snapshot }) => {
     const sender =
       message.senderId === "user"
-        ? "你（用户）"
+        ? "you (the user)"
         : runtime.bus.sessions.get(runtime.bus.participants.get(message.senderId)?.sessionId ?? "")?.alias ?? message.senderId;
     if (body.acknowledge !== false) runtime.bus.acknowledgeDelivery({ deliveryId: delivery.id, sessionId: session.id });
     return {

@@ -2,7 +2,7 @@ import type { Artifact, NativeEvent } from "@portage/core";
 import { $, stateLabels, reasonShort, deliveryStateLabels, type VMessage, ui, model, session, room } from "./state.js";
 import { isUnread } from "./model.js";
 import { hasOlder } from "./data.js";
-import { escapeHtml, senderName, statusFor, timeLabel, initial, modeLabel, richText, formatBytes, setHtml } from "./format.js";
+import { escapeHtml, senderName, statusFor, timeLabel, initial, modeLabel, richText, formatBytes, setHtml, plural } from "./format.js";
 
 /**
  * Who this draft will wake if sent now — the same routing the Bus applies, previewed before
@@ -11,21 +11,21 @@ import { escapeHtml, senderName, statusFor, timeLabel, initial, modeLabel, richT
 export function predictWake(text: string, target: string): { names: string[]; note: string } {
   if (ui.selection.kind === "session") {
     const s = session(ui.selection.id);
-    return { names: s ? [s.name] : [], note: "私聊，直接送达" };
+    return { names: s ? [s.name] : [], note: "direct message, delivered straight to it" };
   }
   const current = room();
-  if (target !== "room") return { names: [session(target)?.name ?? ""], note: "只发给它" };
+  if (target !== "room") return { names: [session(target)?.name ?? ""], note: "sent only to it" };
   const mentioned = mentionsIn(text)
     .map((pid) => model().sessions.find((s) => s.participantId === pid)?.name)
     .filter((n): n is string => Boolean(n));
-  if (current.mode === "manual") return { names: [], note: "手动模式，只记录不唤醒" };
-  if (current.paused) return { names: [], note: "房间已暂停，恢复后再送达" };
-  if (mentioned.length) return { names: mentioned, note: "被 @ 的成员会直接收到" };
+  if (current.mode === "manual") return { names: [], note: "manual mode: logged, nobody is woken" };
+  if (current.paused) return { names: [], note: "room paused: delivers after you resume" };
+  if (mentioned.length) return { names: mentioned, note: "@-mentioned members receive it directly" };
   if (current.mode === "coordinator") {
     const lead = current.coordinator ? session(current.coordinator)?.name : undefined;
-    return lead ? { names: [lead], note: "先交给统筹者，由它分派" } : { names: [], note: "还没有指定统筹者" };
+    return lead ? { names: [lead], note: "goes to the lead first, who hands it out" } : { names: [], note: "no lead picked yet" };
   }
-  return { names: [], note: "没有 @ 任何人，只记在房间里" };
+  return { names: [], note: "no @-mention, so it is only logged in the room" };
 }
 
 export function visibleMessages() {
@@ -45,37 +45,37 @@ export function deliveriesFor(messageId: string) {
 export function receiptChips(message: VMessage) {
   const deliveries = deliveriesFor(message.id);
   if (!deliveries.length)
-    return `<button class="receipt-row" data-message="${message.id}"><span class="rcpt quiet">只记在房间里，没有唤醒谁</span></button>`;
+    return `<button class="receipt-row" data-message="${message.id}"><span class="rcpt quiet">Logged in the room, nobody woken</span></button>`;
   return `<button class="receipt-row" data-message="${message.id}">${deliveries
     .map((d) => {
       const tone = d.ack ? "read" : d.state === "submitted" ? "submitted" : d.state === "failed" ? "failed" : "waiting";
       const label = d.ack
-        ? "已读"
+        ? "Read"
         : d.state === "submitted"
-          ? isUnread(d) ? "已送达 · 未读" : "已送达"
+          ? isUnread(d) ? "Delivered · unread" : "Delivered"
           : reasonShort[d.reason] ?? deliveryStateLabels[d.state] ?? d.state;
       return `<span class="rcpt ${tone}"><i></i>${escapeHtml(senderName(d.recipient))}<em>${escapeHtml(label)}</em></span>`;
     })
-    .join("")}<span class="rcpt-more">详情 ↗</span></button>`;
+    .join("")}<span class="rcpt-more">Details ↗</span></button>`;
 }
 
 export function emptyChat(direct: boolean) {
-  if (direct) return `<div class="empty-state chat-empty"><b>从这里开始一段私聊</b><span>消息会直接送到它那里，它还是原来的它，带着自己的记忆和手上的活。</span></div>`;
+  if (direct) return `<div class="empty-state chat-empty"><b>Start a direct chat</b><span>Messages go straight to it. It stays itself, with its own memory and the work it has in hand.</span></div>`;
   const current = room();
   const lead = current.coordinator ? session(current.coordinator) : undefined;
   const other = current.members.map((id) => session(id)!).find((s) => s.id !== lead?.id);
   const suggestions = [
-    lead ? `请统筹推进：梳理本周要交付的适配器改动，并分派给合适的成员。` : "",
-    other ? `@${other.alias} 请检查一下最近的投递记录，看看有没有结果不明的。` : "",
-    "大家各自同步一下进度和阻塞点。",
+    lead ? `Please drive this: list the adapter changes we ship this week and hand them to the right people.` : "",
+    other ? `@${other.alias} could you check recent deliveries for any with an unclear outcome?` : "",
+    "Everyone, share where you are and what is blocking you.",
   ].filter(Boolean);
-  return `<div class="empty-state chat-empty"><b>房间还没有消息</b><span>${escapeHtml(modeLabel(current.mode))}。试试下面的开场白，或者先「看一段演示」。</span><div class="suggestions">${suggestions
+  return `<div class="empty-state chat-empty"><b>No messages yet</b><span>${escapeHtml(modeLabel(current.mode))}. Try an opener below, or watch the demo first.</span><div class="suggestions">${suggestions
     .map((s) => `<button data-suggest="${escapeHtml(s)}">${richText(s).replace(/<button[^>]*>|<\/button>/g, "")}</button>`)
     .join("")}</div></div>`;
 }
 
 export function artifactMarkup(item: Artifact) {
-  return `<button class="artifact-card" data-artifact="${item.id}"><span class="artifact-icon">▤</span><span><b>${escapeHtml(item.originalName)}</b><small>v${item.version} · ${formatBytes(item.byteSize)} · ${escapeHtml(item.createdBy === "user" ? "你" : senderName(model().sessionByParticipant.get(item.createdBy) ?? item.createdBy))}</small></span></button>`;
+  return `<button class="artifact-card" data-artifact="${item.id}"><span class="artifact-icon">▤</span><span><b>${escapeHtml(item.originalName)}</b><small>v${item.version} · ${formatBytes(item.byteSize)} · ${escapeHtml(item.createdBy === "user" ? "You" : senderName(model().sessionByParticipant.get(item.createdBy) ?? item.createdBy))}</small></span></button>`;
 }
 
 /** The direct conversation with a session, once one exists. */
@@ -95,7 +95,7 @@ export function pagedConversationId() {
 function olderMarkup() {
   const id = pagedConversationId();
   if (!id || !hasOlder(id)) return "";
-  return `<button class="load-older" data-load-older="${id}" ${ui.loadingOlder ? "disabled" : ""}>${ui.loadingOlder ? "加载中…" : "加载更早的消息"}</button>`;
+  return `<button class="load-older" data-load-older="${id}" ${ui.loadingOlder ? "disabled" : ""}>${ui.loadingOlder ? "Loading…" : "Load earlier messages"}</button>`;
 }
 
 export function renderChat() {
@@ -106,9 +106,9 @@ export function renderChat() {
     button.setAttribute("aria-selected", String(button.dataset.chatSource === (nativeView ? "native" : "portage")));
   $("chatContext").textContent = target
     ? nativeView
-      ? `${target.name} 自己的会话记录 · Portage 只读不改`
-      : `你和 ${target.name} 的往来，包括房间里和它有关的消息`
-    : `${room().members.length} 位成员都能看到 · ${modeLabel(room().mode)}`;
+      ? `${target.name}'s own session record · Portage only reads it`
+      : `You and ${target.name}, including room messages that involve it`
+    : `Visible to ${plural(room().members.length, "member")} · ${modeLabel(room().mode)}`;
   const box = $("messages");
   const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
   const switched = box.dataset.view !== `${ui.selection.kind}:${ui.selection.id}:${nativeView}`;
@@ -139,7 +139,7 @@ export function renderChat() {
           const quote = parent
             ? `<button class="reply-quote" data-message="${parent.id}"><b>${escapeHtml(senderName(parent.sender))}</b>${escapeHtml(parent.text.slice(0, 60))}${parent.text.length > 60 ? "…" : ""}</button>`
             : "";
-          return `${divider}<article data-id="${item.id}" class="message ${ui.freshMessages.has(item.id) ? "fresh" : ""} ${continued ? "continued" : ""} ${item.sender === "user" ? "from-user" : ""}" style="--agent-color:${author?.color ?? "#d87243"}"><span class="avatar ${author?.provider === "Claude" ? "claude" : ""} ${item.sender === "user" ? "user" : ""}">${item.sender === "user" ? "你" : initial(author)}</span><div class="message-main"><div class="message-header"><b>${escapeHtml(senderName(item.sender))}</b><span class="message-source">${author ? `${author.provider} · ${author.host}` : ""}${item.direct ? " · 私聊" : ""}${item.demo ? " · 演示" : ""}</span><time>${timeLabel(item.at)}</time></div>${quote}<div class="message-body">${richText(item.text)}${item.revision > 1 ? ` <small>（修订 v${item.revision}）</small>` : ""}</div>${item.artifacts.map(artifactMarkup).join("")}${receiptChips(item)}<div class="message-actions"><button data-message="${item.id}">送达详情</button>${item.sender === "user" ? `<button data-edit-message="${item.id}">修订</button>` : ""}<button data-hide-message="${item.id}">隐藏</button></div></div></article>`;
+          return `${divider}<article data-id="${item.id}" class="message ${ui.freshMessages.has(item.id) ? "fresh" : ""} ${continued ? "continued" : ""} ${item.sender === "user" ? "from-user" : ""}" style="--agent-color:${author?.color ?? "#d87243"}"><span class="avatar ${author?.provider === "Claude" ? "claude" : ""} ${item.sender === "user" ? "user" : ""}">${item.sender === "user" ? "You" : initial(author)}</span><div class="message-main"><div class="message-header"><b>${escapeHtml(senderName(item.sender))}</b><span class="message-source">${author ? `${author.provider} · ${author.host}` : ""}${item.direct ? " · direct" : ""}${item.demo ? " · demo" : ""}</span><time>${timeLabel(item.at)}</time></div>${quote}<div class="message-body">${richText(item.text)}${item.revision > 1 ? ` <small>(edited, v${item.revision})</small>` : ""}</div>${item.artifacts.map(artifactMarkup).join("")}${receiptChips(item)}<div class="message-actions"><button data-message="${item.id}">Delivery</button>${item.sender === "user" ? `<button data-edit-message="${item.id}">Edit</button>` : ""}<button data-hide-message="${item.id}">Hide</button></div></div></article>`;
         })
         .join("")
     : emptyChat(Boolean(target));
@@ -148,36 +148,36 @@ export function renderChat() {
 }
 
 const correlationLabels: Record<NativeEvent["correlation"], string> = {
-  exact: "Portage 投递 · 已确认",
-  inferred: "推断来自 Portage",
-  unknown: "宿主直接输入",
+  exact: "From Portage · confirmed",
+  inferred: "Likely from Portage",
+  unknown: "Typed in its own app",
 };
 
 function nativeEventMarkup(e: NativeEvent) {
   const at = timeLabel(Date.parse(e.nativeTime));
   if (e.kind === "turn_started" || e.kind === "turn_completed")
-    return `<div class="native-turn"><span>${e.kind === "turn_started" ? "回合开始" : "回合结束"} · ${at}</span></div>`;
+    return `<div class="native-turn"><span>${e.kind === "turn_started" ? "Turn started" : "Turn ended"} · ${at}</span></div>`;
   if (e.kind === "turn_failed")
-    return `<div class="native-turn failed"><span>回合失败 · ${at}${e.text ? ` · ${escapeHtml(e.text.slice(0, 160))}` : ""}</span></div>`;
+    return `<div class="native-turn failed"><span>Turn failed · ${at}${e.text ? ` · ${escapeHtml(e.text.slice(0, 160))}` : ""}</span></div>`;
   const input = e.kind === "input";
   const headline = input ? inputHeadline(e) : e.text;
   const full = input && headline !== e.text
-    ? `<details><summary>它收到的完整内容（含约定）· ${formatBytes(new TextEncoder().encode(e.text).length)}</summary><pre>${escapeHtml(e.text)}</pre></details>`
+    ? `<details><summary>Everything it received, rules included · ${formatBytes(new TextEncoder().encode(e.text).length)}</summary><pre>${escapeHtml(e.text)}</pre></details>`
     : "";
   const body = headline.length > 600
     ? `<details><summary>${escapeHtml(headline.slice(0, 240))}…</summary><pre>${escapeHtml(headline)}</pre></details>`
     : `<p>${escapeHtml(headline)}</p>`;
-  const link = e.correlatedMessageId ? `<button data-message="${e.correlatedMessageId}">查看链路</button>` : "";
-  return `<article class="native-event ${e.kind} ${e.correlation}"><header><b>${input ? "输入" : "输出"}</b>${input ? `<span class="corr ${e.correlation}">${correlationLabels[e.correlation]}</span>` : ""}<time>${at}</time>${link}</header>${body}${full}</article>`;
+  const link = e.correlatedMessageId ? `<button data-message="${e.correlatedMessageId}">Open thread</button>` : "";
+  return `<article class="native-event ${e.kind} ${e.correlation}"><header><b>${input ? "Input" : "Output"}</b>${input ? `<span class="corr ${e.correlation}">${correlationLabels[e.correlation]}</span>` : ""}<time>${at}</time>${link}</header>${body}${full}</article>`;
 }
 
 /** What the input said in the user's words: the Portage message it carries, not the rule layers around it. */
 function inputHeadline(e: NativeEvent) {
   const message = e.correlatedMessageId ? model().messages.find((m) => m.id === e.correlatedMessageId) : undefined;
   if (message) return message.text;
-  const marker = /\[原始消息 · v\d+ · [^\]\s]+\]\n/.exec(e.text);
+  const marker = /\[(?:Original message|原始消息) · v\d+ · [^\]\s]+\]\n/.exec(e.text);
   if (!marker) return e.text;
-  return e.text.slice(marker.index + marker[0].length).split(/\n\n\[(?:产物引用|回复方式)\]/)[0]!;
+  return e.text.slice(marker.index + marker[0].length).split(/\n\n\[(?:Artifacts|How to reply|产物引用|回复方式)\]/)[0]!;
 }
 
 /** The session's own transcript as read back: what it really received and said, and how sure the link is. */
@@ -185,13 +185,13 @@ function nativeMarkup(sessionId: string) {
   const target = session(sessionId)!;
   const record = ui.native.get(sessionId);
   if (!target.adapterId)
-    return `<div class="empty-state chat-empty"><b>它没有可以读回的会话记录</b><span>这个会话通过收件箱收消息，它用 MCP 来取；有没有读过，看每条消息下面的回执。</span></div>`;
-  if (!record) return `<div class="empty-state chat-empty"><b>正在读取原生记录…</b></div>`;
+    return `<div class="empty-state chat-empty"><b>No session record to read back</b><span>This session gets messages through an inbox and fetches them over MCP. Whether it read them shows under each message.</span></div>`;
+  if (!record) return `<div class="empty-state chat-empty"><b>Reading its native record…</b></div>`;
   const cp = record.checkpoint;
   const sync = cp
-    ? `<div class="native-sync ${cp.error ? "gap" : ""}"><span>${cp.error ? `读取中断 · ${escapeHtml(cp.error)}` : `已同步到 ${cp.lastSuccessAt ? timeLabel(Date.parse(cp.lastSuccessAt)) : "—"}`}</span><code title="${escapeHtml(cp.source)}">${escapeHtml(cp.source.split(/[\\/]/).slice(-2).join("/"))} · 游标 ${cp.cursor}</code></div>`
+    ? `<div class="native-sync ${cp.error ? "gap" : ""}"><span>${cp.error ? `Read interrupted · ${escapeHtml(cp.error)}` : `Synced at ${cp.lastSuccessAt ? timeLabel(Date.parse(cp.lastSuccessAt)) : "—"}`}</span><code title="${escapeHtml(cp.source)}">${escapeHtml(cp.source.split(/[\\/]/).slice(-2).join("/"))} · cursor ${cp.cursor}</code></div>`
     : "";
-  return `${sync}${record.events.length ? record.events.map(nativeEventMarkup).join("") : `<div class="empty-state chat-empty"><b>还没有记录</b><span>给它发消息后，它收到了什么、回了什么，都会出现在这里。</span></div>`}`;
+  return `${sync}${record.events.length ? record.events.map(nativeEventMarkup).join("") : `<div class="empty-state chat-empty"><b>Nothing recorded yet</b><span>Once you message it, what it received and how it replied show up here.</span></div>`}`;
 }
 
 export function renderComposer() {
@@ -203,26 +203,26 @@ export function renderComposer() {
     select.innerHTML = `<option value="${target.id}">${escapeHtml(target.name)}</option>`;
     send.disabled = !target.enabled || !target.writable;
     $("composerHint").textContent = !target.enabled
-      ? "通信已关闭，可在详情中开启"
+      ? "Receiving is off; turn it on in details"
       : target.writable
-        ? "直接送到它那里"
-        : "当前入口只读，可查看记录";
-    $("contextRevision").textContent = `全局 v${model().globalRevision} · 私聊`;
-    ($("messageInput") as HTMLTextAreaElement).placeholder = `发给 ${target.name}…`;
+        ? "Goes straight to it"
+        : "Read-only here; you can view its record";
+    $("contextRevision").textContent = `Global v${model().globalRevision} · direct`;
+    ($("messageInput") as HTMLTextAreaElement).placeholder = `Message ${target.name}…`;
   } else {
-    ($("messageInput") as HTMLTextAreaElement).placeholder = "发一条消息，或 @ 一个成员…";
+    ($("messageInput") as HTMLTextAreaElement).placeholder = "Write a message, or @ a member…";
     select.innerHTML = `<option value="room">${escapeHtml(room().name)}</option>${room()
       .members.map((id) => `<option value="${id}">@${session(id)!.alias} · ${escapeHtml(session(id)!.name)}</option>`)
       .join("")}`;
     if ([...select.options].some((o) => o.value === previous)) select.value = previous;
     send.disabled = false;
-    $("composerHint").textContent = `房间成员可读，${modeLabel(room().mode)}`;
-    $("contextRevision").textContent = `全局 v${model().globalRevision} · 房间 v${room().revision}`;
+    $("composerHint").textContent = `Everyone in the room sees this · ${modeLabel(room().mode)}`;
+    $("contextRevision").textContent = `Global v${model().globalRevision} · room v${room().revision}`;
   }
   renderWakePreview();
   $("attachmentPreview").hidden = !ui.attachment;
   $("attachmentPreview").innerHTML = ui.attachment
-    ? `▤ ${escapeHtml(ui.attachment.name)} · ${formatBytes(ui.attachment.size)} <button type="button" id="removeAttachment" aria-label="移除附件">×</button>`
+    ? `▤ ${escapeHtml(ui.attachment.name)} · ${formatBytes(ui.attachment.size)} <button type="button" id="removeAttachment" aria-label="Remove attachment">×</button>`
     : "";
 }
 
@@ -234,7 +234,7 @@ export function renderWakePreview() {
   el.classList.toggle("silent", !names.length);
   setHtml(
     el,
-    `<span class="wake-label">${names.length ? "将唤醒" : "不唤醒"}</span>${names
+    `<span class="wake-label">${names.length ? "Wakes" : "Wakes nobody"}</span>${names
       .map((n) => `<span class="wake-name">${escapeHtml(n)}</span>`)
       .join("")}<span class="wake-note">${escapeHtml(note)}</span>`,
   );

@@ -51,7 +51,7 @@ export function drawCanvas(canvas: HTMLCanvasElement, kind: "room" | "flow", now
       if (!edges.has(key)) edges.set(key, { from: message.sender, to: parent.sender, kind: "inferred" });
     }
   }
-  // Swarm / 仅@ / 手动：房间视图不画成员固定连线，只保留在途粒子
+  // Open floor / mentions / manual: no fixed member links in the room, only packets in transit
   context.lineWidth = 1.2;
   for (const edge of edges.values()) {
     const from = positions.get(edge.from);

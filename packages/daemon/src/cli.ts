@@ -39,7 +39,7 @@ async function runDemo() {
     conversationId: "room_dev",
     senderId: "user",
     target: { kind: "room", id: "room_dev" },
-    text: "请核对适配器契约，给出可实施修改意见。",
+    text: "Please review the adapter contract and come back with changes we can ship.",
     idempotencyKey: `demo_${Date.now()}`,
     source: "user",
   });

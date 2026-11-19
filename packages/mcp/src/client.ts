@@ -40,7 +40,7 @@ export class PortageClient {
       return found.sessionId;
     } catch (error) {
       throw new Error(
-        `${error instanceof Error ? error.message : error}. This CLI is not registered in Portage yet — register it in the Portage UI (登记本机会话), or start this MCP server with --session <id>.`,
+        `${error instanceof Error ? error.message : error}. This CLI is not registered in Portage yet — register it in the Portage UI (Find local sessions), or start this MCP server with --session <id>.`,
       );
     }
   }

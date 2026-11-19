@@ -18,19 +18,21 @@ export function toast(message: string, tone: "" | "error" = "") {
 
 export function memberBadge(item: VSession, roomId = ui.roomId) {
   const current = room(roomId);
-  return current.mode === "coordinator" && current.coordinator === item.id ? "统筹" : "";
+  return current.mode === "coordinator" && current.coordinator === item.id ? "Lead" : "";
 }
-export const senderName = (id: string) => (id === "user" ? "你" : session(id)?.name ?? "未知会话");
+export const senderName = (id: string) => (id === "user" ? "You" : session(id)?.name ?? "Unknown session");
 export const statusFor = (item: VSession) => (item.enabled ? item.execution : "disabled");
 export const queueFor = (id: string) =>
   model().deliveries.filter((d) => d.recipient === id && (d.state === "queued" || d.state === "held"));
 export const timeLabel = (t: number) =>
-  new Date(t).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
 export const initial = (item?: VSession) =>
   !item ? "P" : item.provider === "Codex" ? "C›" : item.provider === "Claude" ? "✳" : item.provider[0]!;
+/** "1 member", "3 members"; pass the plural when it is not just word + "s". */
+export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 export function modeLabel(mode: string) {
   return (
-    { mentions: "仅 @ 提及", coordinator: "统筹 · 先交给统筹者派发", swarm: "自由协作 · 谁被 @ 谁回应", manual: "手动 · 只记录不唤醒" } as Record<string, string>
+    { mentions: "@ mentions only", coordinator: "Coordinator · the lead dispatches first", swarm: "Open floor · whoever is @-mentioned replies", manual: "Manual · logged, nobody is woken" } as Record<string, string>
   )[mode] ?? mode;
 }
 
@@ -41,12 +43,12 @@ export function countdownMarkup(at?: number) {
 }
 export function countdownText(at: number) {
   const left = Math.ceil((at - Date.now()) / 1000);
-  return left > 0 ? `${left} 秒后自动继续` : "马上继续";
+  return left > 0 ? `continues in ${left}s` : "continuing now";
 }
 
 /** Why a delivery is waiting, plus when it will move again if that is known. */
 export function waitMarkup(d: VDelivery) {
-  const label = reasonLabels[d.reason] ?? (d.state === "uncertain" ? "还不确定送没送到，正在读回它的记录核对" : "等待送达");
+  const label = reasonLabels[d.reason] ?? (d.state === "uncertain" ? "Not sure it landed yet; checking its own record" : "Waiting to deliver");
   return `${escapeHtml(label)}${d.detail ? ` · ${escapeHtml(d.detail)}` : ""}${d.reason === "budget" ? ` · ${countdownMarkup(d.nextAttemptAt)}` : ""}`;
 }
 

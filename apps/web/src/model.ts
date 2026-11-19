@@ -11,7 +11,7 @@ export function hashIndex(value: string, size: number) {
 
 export const providerLabel = (p: string) => (p === "codex" ? "Codex" : p === "claude" ? "Claude" : p);
 export const hostLabel = (h: string) =>
-  ({ terminal: "终端", vscode_cli: "VS Code", app: "桌面应用", headless: "后台进程" })[h] ?? h;
+  ({ terminal: "Terminal", vscode_cli: "VS Code", app: "Desktop app", headless: "Background" })[h] ?? h;
 
 /**
  * A session counts as "reading" once any of its deliveries was ever acknowledged by its agent.
@@ -219,9 +219,9 @@ export function buildModel(s: Snapshot): Model {
 export function describeEvent(e: BusEvent, m: Model, s: Snapshot): VEvent | null {
   const p = e.payload;
   const nameOf = (sessionId?: string | null) =>
-    sessionId ? m.sessions.find((x) => x.id === sessionId)?.name ?? s.sessions.find((x) => x.id === sessionId)?.displayName ?? sessionId : "未知会话";
+    sessionId ? m.sessions.find((x) => x.id === sessionId)?.name ?? s.sessions.find((x) => x.id === sessionId)?.displayName ?? sessionId : "Unknown session";
   const actorSession = e.actorId === "user" ? "user" : m.sessionByParticipant.get(e.actorId) ?? null;
-  const actorName = actorSession === "user" ? "你" : nameOf(actorSession);
+  const actorName = actorSession === "user" ? "You" : nameOf(actorSession);
   const base = {
     id: e.id,
     seq: e.seq,
@@ -238,13 +238,13 @@ export function describeEvent(e: BusEvent, m: Model, s: Snapshot): VEvent | null
       const msg = m.messages.find((x) => x.id === e.entityId);
       const target =
         p.targetKind === "room"
-          ? m.rooms.find((r) => r.id === p.targetId)?.name ?? "房间"
+          ? m.rooms.find((r) => r.id === p.targetId)?.name ?? "room"
           : nameOf(m.sessionByParticipant.get(String(p.targetId)));
       return {
         ...base,
         messageId: e.entityId,
-        description: `${actorName} → ${target} · ${(msg?.text ?? "").slice(0, 34)}`,
-        status: Number(p.recipients) ? "已进入收件箱" : "已记录，未唤醒",
+        description: `${actorName} → ${target} · ${(msg?.text ?? "").slice(0, 90)}`,
+        status: Number(p.recipients) ? "In inboxes" : "Logged, nobody woken",
       };
     }
     case "DeliverySubmitted":
@@ -253,15 +253,15 @@ export function describeEvent(e: BusEvent, m: Model, s: Snapshot): VEvent | null
         sessionId: recipient,
         messageId: String(p.messageId),
         description: `${actorName} → ${nameOf(recipient)}`,
-        status: "已送进它的会话",
+        status: "Delivered to its session",
       };
     case "DeliveryAcknowledged":
       return {
         ...base,
         sessionId: recipient,
         messageId: String(p.messageId),
-        description: `${nameOf(recipient)} 已读取消息`,
-        status: "已读",
+        description: `${nameOf(recipient)} read the message`,
+        status: "Read",
       };
     case "DeliveryQueued":
       if (!p.reason) return null;
@@ -269,8 +269,8 @@ export function describeEvent(e: BusEvent, m: Model, s: Snapshot): VEvent | null
         ...base,
         sessionId: recipient,
         messageId: String(p.messageId),
-        description: `${nameOf(recipient)} 的收件箱在排队 · ${reasonLabels[String(p.reason)] ?? p.reason}`,
-        status: p.reason === "seats" ? "席位空出后投递" : "等待就绪",
+        description: `Queued for ${nameOf(recipient)} · ${reasonLabels[String(p.reason)] ?? p.reason}`,
+        status: p.reason === "seats" ? "Delivers when a seat frees up" : "Waiting until ready",
         wait: true,
       };
     case "DeliveryHeld":
@@ -279,74 +279,74 @@ export function describeEvent(e: BusEvent, m: Model, s: Snapshot): VEvent | null
         sessionId: recipient,
         messageId: String(p.messageId),
         description: `${actorName} → ${nameOf(recipient)} · ${reasonLabels[String(p.reason)] ?? p.reason}${p.detail ? `（${p.detail}）` : ""}`,
-        status: p.reason === "budget" ? "窗口重开后自动恢复" : "已暂缓",
+        status: p.reason === "budget" ? "Resumes when the limit resets" : "Held",
         wait: true,
       };
     case "DeliveryUncertain":
-      return { ...base, sessionId: recipient, messageId: String(p.messageId), description: `${nameOf(recipient)} · 提交结果不明`, status: "待回读核对", wait: true };
+      return { ...base, sessionId: recipient, messageId: String(p.messageId), description: `${nameOf(recipient)} · unsure whether it landed`, status: "Checking its record", wait: true };
     case "DeliveryFailed":
-      return { ...base, sessionId: recipient, messageId: String(p.messageId), description: `${nameOf(recipient)} · 投递失败 ${p.reason ?? ""}`, status: "失败", wait: true };
+      return { ...base, sessionId: recipient, messageId: String(p.messageId), description: `${nameOf(recipient)} · delivery failed ${p.reason ?? ""}`, status: "Failed", wait: true };
     case "DeliveryCancelled":
-      return { ...base, sessionId: recipient, messageId: String(p.messageId), description: `${nameOf(recipient)} · 投递已取消`, status: "已取消" };
+      return { ...base, sessionId: recipient, messageId: String(p.messageId), description: `${nameOf(recipient)} · delivery cancelled`, status: "Cancelled" };
     case "MembershipChanged": {
       const sid = m.sessionByParticipant.get(e.entityId) ?? null;
-      return { ...base, sessionId: sid, description: `${nameOf(sid)} ${p.action === "joined" ? "加入" : "退出"}房间`, status: "成员变更" };
+      return { ...base, sessionId: sid, description: `${nameOf(sid)} ${p.action === "joined" ? "joined" : "left"} the room`, status: "Members changed" };
     }
     case "RoomPolicyChanged": {
       if (p.wakeMode) {
         const lead = p.coordinatorParticipantId ? nameOf(m.sessionByParticipant.get(String(p.coordinatorParticipantId))) : null;
         const text =
           p.reason === "coordinator_left"
-            ? lead ? `统筹交给了 ${lead}` : "房间没有统筹者了，切换为自由协作"
-            : `房间模式 · ${modeLabel(String(p.wakeMode))}${p.wakeMode === "coordinator" && lead ? ` · ${lead}` : ""}`;
-        return { ...base, description: text, status: "路由已更新" };
+            ? lead ? `${lead} is now the lead` : "No lead anymore; switched to open floor"
+            : `Room mode · ${modeLabel(String(p.wakeMode))}${p.wakeMode === "coordinator" && lead ? ` · ${lead}` : ""}`;
+        return { ...base, description: text, status: "Routing updated" };
       }
       const parts = [
-        `轮次 ${p.maxAutoRounds}`,
-        `每分钟 ${p.agentMessagesPerMinute} 条`,
-        p.maxConcurrent ? `同时工作 ${p.maxConcurrent}` : "",
-        p.maxWakeupsPerTrace ? `链路唤醒 ${p.maxWakeupsPerTrace}` : "",
+        `${p.maxAutoRounds} rounds`,
+        `${p.agentMessagesPerMinute} msgs/min`,
+        p.maxConcurrent ? `${p.maxConcurrent} at once` : "",
+        p.maxWakeupsPerTrace ? `${p.maxWakeupsPerTrace} wake-ups/thread` : "",
       ].filter(Boolean);
-      return { ...base, description: `额度更新 · ${parts.join(" · ")}`, status: "立即生效" };
+      return { ...base, description: `Limits updated · ${parts.join(" · ")}`, status: "Applies now" };
     }
     case "RoomPaused":
-      return { ...base, description: `房间自动通信${p.paused ? "已暂停" : "已恢复"}`, status: p.paused ? "消息照常记录" : "继续送达", wait: Boolean(p.paused) };
+      return { ...base, description: `Auto-messaging ${p.paused ? "paused" : "resumed"}`, status: p.paused ? "Messages still logged" : "Delivering again", wait: Boolean(p.paused) };
     case "PolicyPublished":
       return {
         ...base,
-        description: p.scope === "global" ? `全局约定 v${p.revision} 已发布` : `协作约定 v${p.revision} 已发布`,
-        status: "下一次投递起生效",
+        description: p.scope === "global" ? `Global rules v${p.revision} published` : `Room rules v${p.revision} published`,
+        status: "Applies from the next delivery",
       };
     case "SessionCommunicationChanged":
-      return { ...base, sessionId: e.entityId, description: `${nameOf(e.entityId)} · 接收消息${p.enabled ? "已开启" : "已关闭"}`, status: "已记录" };
+      return { ...base, sessionId: e.entityId, description: `${nameOf(e.entityId)} · receiving ${p.enabled ? "on" : "off"}`, status: "Logged" };
     case "SessionExecutionChanged":
       return {
         ...base,
         sessionId: e.entityId,
         description: `${nameOf(e.entityId)} · ${stateLabels[String(p.execution)] ?? p.execution}${p.detail ? ` · ${p.detail}` : ""}`,
-        status: "状态变化",
+        status: "Status changed",
         wait: Boolean(p.detail),
       };
     case "SessionBindingChanged":
-      return { ...base, sessionId: e.entityId, description: `${nameOf(e.entityId)} · 会话身份变了`, status: "等你确认后继续送达", wait: true };
+      return { ...base, sessionId: e.entityId, description: `${nameOf(e.entityId)} · session identity changed`, status: "Waiting for you to confirm", wait: true };
     case "NativeEventObserved": {
       // Only what proves or breaks the link is worth a feed line; outputs live in the session's sync view.
       const sid = String(p.sessionId);
       if (p.kind === "input" && p.correlation !== "unknown")
-        return { ...base, sessionId: sid, messageId: e.causalParentIds[0] ?? null, description: `${nameOf(sid)} 的会话记录里出现了这条消息`, status: p.correlation === "exact" ? "已确认收到" : "推断收到" };
-      if (p.kind === "turn_failed") return { ...base, sessionId: sid, description: `${nameOf(sid)} 这一轮没跑完`, status: "看看详情", wait: true };
+        return { ...base, sessionId: sid, messageId: e.causalParentIds[0] ?? null, description: `The message shows up in ${nameOf(sid)}'s own record`, status: p.correlation === "exact" ? "Confirmed" : "Inferred" };
+      if (p.kind === "turn_failed") return { ...base, sessionId: sid, description: `${nameOf(sid)}'s turn did not finish`, status: "See details", wait: true };
       return null;
     }
     case "ArtifactCreated":
-      return { ...base, description: `${actorName} 共享了 ${p.name}`, status: `文件 v${p.version}` };
+      return { ...base, description: `${actorName} shared ${p.name}`, status: `File v${p.version}` };
     case "SessionRegistered":
-      return { ...base, sessionId: e.entityId, description: `登记 ${nameOf(e.entityId)} · ${providerLabel(String(p.provider))} / ${hostLabel(String(p.host))}`, status: "已登记" };
+      return { ...base, sessionId: e.entityId, description: `Added ${nameOf(e.entityId)} · ${providerLabel(String(p.provider))} / ${hostLabel(String(p.host))}`, status: "Added" };
     case "SessionUpdated":
-      return { ...base, sessionId: e.entityId, description: `${nameOf(e.entityId)} · 名称或设置已更新`, status: "已记录" };
+      return { ...base, sessionId: e.entityId, description: `${nameOf(e.entityId)} · name or settings updated`, status: "Logged" };
     case "RoomCreated":
-      return { ...base, description: `新建房间「${p.title}」`, status: "已记录" };
+      return { ...base, description: `New room “${p.title}”`, status: "Logged" };
     case "MessageRevised":
-      return { ...base, messageId: e.entityId, description: `消息改到了第 ${p.revision} 版`, status: "未送达的将用新版本" };
+      return { ...base, messageId: e.entityId, description: `Message edited to v${p.revision}`, status: "Undelivered copies use the new version" };
     default:
       return null;
   }

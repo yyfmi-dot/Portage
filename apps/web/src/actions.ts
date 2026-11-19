@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { $, deliveryStateLabels, ui, session, room } from "./state.js";
-import { toast, senderName, queueFor } from "./format.js";
+import { toast, senderName, queueFor, plural } from "./format.js";
 import { act, refresh } from "./data.js";
 import { render } from "./render.js";
 import { renderOffice } from "./office.js";
@@ -45,8 +45,8 @@ export async function sendFromComposer() {
   const input = $("messageInput") as HTMLTextAreaElement;
   const text = input.value.trim();
   if (($("sendButton") as HTMLButtonElement).disabled) return;
-  if (!text && !ui.attachment) return toast("写一条消息或选择一个附件");
-  const body = text || "共享一个附件";
+  if (!text && !ui.attachment) return toast("Write a message or pick an attachment");
+  const body = text || "Sharing an attachment";
   const target = ($("sendTarget") as HTMLSelectElement).value;
   const sendButton = $("sendButton");
   sendButton.classList.remove("launch");
@@ -80,13 +80,13 @@ export async function sendFromComposer() {
     ui.attachment = null;
     ($("fileInput") as HTMLInputElement).value = "";
     const states = result.deliveries.map((d) => deliveryStateLabels[d.state] ?? d.state);
-    toast(result.deliveries.length ? `已发送 · ${result.deliveries.length} 份投递（${[...new Set(states)].join(" / ")}）` : "已记录到房间历史 · 当前模式未唤醒成员");
+    toast(result.deliveries.length ? `Sent · ${plural(result.deliveries.length, "delivery", "deliveries")} (${[...new Set(states)].join(" / ")})` : "Logged in the room · this mode woke nobody");
   });
 }
 
 export async function previewQuery() {
   const target = ($("sendTarget") as HTMLSelectElement).value;
-  const text = ($("messageInput") as HTMLTextAreaElement).value || "（输入区尚未填写消息）";
+  const text = ($("messageInput") as HTMLTextAreaElement).value || "(nothing typed yet)";
   await act(async () => {
     let conversationId = ui.roomId;
     let recipientSessionId = target === "room" ? undefined : target;
@@ -97,8 +97,8 @@ export async function previewQuery() {
     const result = await api.preview(conversationId, { text, recipientSessionId });
     showSnapshot(
       result.snapshot,
-      "它会收到什么",
-      `如果现在发送，${senderName(result.recipientSessionId ?? "")} 会一字不差地收到下面这些：约定、原始消息和回复方式。`,
+      "What they receive",
+      `If you send now, ${senderName(result.recipientSessionId ?? "")} receives exactly this: the rules, your message and how to reply.`,
     );
   });
 }
@@ -107,18 +107,18 @@ export const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve,
 
 export async function demoCollaboration() {
   const current = room();
-  if (current.paused) return toast("房间已暂停，可以先恢复自动通信");
-  if (current.mode === "coordinator" && !current.coordinator) return toast("统筹模式需要指定一位统筹者");
+  if (current.paused) return toast("The room is paused; resume auto-messaging first");
+  if (current.mode === "coordinator" && !current.coordinator) return toast("Coordinator mode needs a lead");
   const lead = session(current.coordinator ?? current.members[0] ?? "");
   const worker = current.members.map((id) => session(id)!).find((s) => s.id !== lead?.id && s.enabled && s.writable);
-  if (!lead?.enabled || !worker) return toast("请让统筹/发起者与至少一位可写成员开启通信");
+  if (!lead?.enabled || !worker) return toast("Turn on receiving for the lead and at least one writable member");
   ui.demoRunning = true;
   renderOffice();
-  toast("演示开始：每一步都是真实送达");
+  toast("Demo started: every step is a real delivery");
   const stamp = Date.now().toString(36);
   try {
     const start = await api.send(current.id, {
-      text: "请核对适配器契约，给出一份可实施的修改意见。",
+      text: "Please review the adapter contract and come back with changes we can ship.",
       idempotencyKey: `demo_${stamp}_1`,
     });
     await wait(1800);
@@ -126,7 +126,7 @@ export async function demoCollaboration() {
     await api.send(current.id, {
       senderId: lead.participantId,
       source: "agent",
-      text: `@${worker.alias} 请核对 native session 绑定、输入提交和重试边界，附上产物。`,
+      text: `@${worker.alias} please check native session binding, input submission and retry boundaries, and attach your notes.`,
       mentionParticipantIds: [worker.participantId],
       traceId: start.message.traceId,
       causalParentIds: [start.message.id],
@@ -134,7 +134,7 @@ export async function demoCollaboration() {
     });
     await wait(2600);
     const review = new File(
-      ["# Delivery review\n\n- 提交结果不明时记录为 uncertain，再通过原生记录回读确认。\n- 重试前核对 binding epoch。\n"],
+      ["# Delivery review\n\n- When a submission's outcome is unclear, record it as uncertain and confirm by reading the native record back.\n- Check the binding epoch before any retry.\n"],
       "delivery-review.md",
       { type: "text/markdown" },
     );
@@ -148,13 +148,13 @@ export async function demoCollaboration() {
     await api.send(current.id, {
       senderId: worker.participantId,
       source: "agent",
-      text: "核对完成。建议把提交结果不明单独记录为 uncertain，再通过原生记录确认。产物已附上。",
+      text: "Done. Unclear submissions should be recorded as uncertain and confirmed from the native record. Notes attached.",
       artifactIds: [artifact.id],
       traceId: start.message.traceId,
       causalParentIds: [start.message.id],
       idempotencyKey: `demo_${stamp}_3`,
     });
-    toast("演示完成，去「信息流」看看完整链路");
+    toast("Demo finished. Open Flow to see the whole thread");
   } catch (error) {
     toast(error instanceof Error ? error.message : String(error), "error");
   } finally {

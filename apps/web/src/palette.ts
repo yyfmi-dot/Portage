@@ -1,26 +1,27 @@
 import { $, stateLabels, ui, model, room } from "./state.js";
-import { escapeHtml, statusFor, initial, modeLabel } from "./format.js";
+import { escapeHtml, statusFor, initial, modeLabel, plural } from "./format.js";
 import { render } from "./render.js";
 import { selectRoom, selectSession, previewQuery, demoCollaboration } from "./actions.js";
 import { showRules, showDiscover } from "./dialogs.js";
 
 export type Command = { group: string; label: string; hint?: string; glyph: string; keywords?: string; run: () => void };
+const groupOrder = ["Rooms", "Sessions", "Actions", "Views"];
 let paletteIndex = 0;
 let paletteItems: Command[] = [];
 
 export function commands(): Command[] {
   const current = room();
-  const viewNames = { room: "房间", chat: "对话", flow: "信息流" } as const;
+  const viewNames = { room: "Room", chat: "Chat", flow: "Flow" } as const;
   return [
     ...model().rooms.map((r) => ({
-      group: "房间",
+      group: "Rooms",
       label: r.name,
-      hint: `${r.members.length} 位成员 · ${modeLabel(r.mode)}`,
-      glyph: [...r.name][0] ?? "房",
+      hint: `${plural(r.members.length, "member")} · ${modeLabel(r.mode)}`,
+      glyph: [...r.name][0] ?? "R",
       run: () => selectRoom(r.id),
     })),
     ...model().sessions.map((s) => ({
-      group: "会话",
+      group: "Sessions",
       label: s.name,
       hint: `@${s.alias} · ${s.provider} · ${s.host} · ${stateLabels[statusFor(s)]}`,
       glyph: initial(s),
@@ -28,8 +29,8 @@ export function commands(): Command[] {
       run: () => selectSession(s.id),
     })),
     ...(Object.keys(viewNames) as Array<keyof typeof viewNames>).map((view, i) => ({
-      group: "视图",
-      label: `切换到${viewNames[view]}`,
+      group: "Views",
+      label: `Go to ${viewNames[view]}`,
       hint: String(i + 1),
       glyph: "◫",
       run: () => {
@@ -38,20 +39,20 @@ export function commands(): Command[] {
         render();
       },
     })),
-    { group: "操作", label: "看一段协作演示", hint: "每一步都是真实送达", glyph: "▷", run: () => void demoCollaboration() },
+    { group: "Actions", label: "Watch a demo", hint: "every step is a real delivery", glyph: "▷", run: () => void demoCollaboration() },
     {
-      group: "操作",
-      label: current.paused ? "恢复房间自动通信" : "暂停房间自动通信",
+      group: "Actions",
+      label: current.paused ? "Resume auto-messaging" : "Pause auto-messaging",
       hint: current.name,
       glyph: current.paused ? "▷" : "Ⅱ",
       run: () => $("pauseRoom").click(),
     },
-    { group: "操作", label: "编辑协作约定", hint: `v${current.revision}`, glyph: "✎", keywords: "rules 规则 预算 策略", run: () => showRules("room") },
-    { group: "操作", label: "编辑全局约定", hint: `v${model().globalRevision}`, glyph: "✎", keywords: "global rules", run: () => showRules("global") },
-    { group: "操作", label: "预览它会收到什么", glyph: "{}", keywords: "preview context", run: () => void previewQuery() },
-    { group: "操作", label: "登记本机会话", hint: "找到本机的 Codex / Claude 会话", glyph: "＋", keywords: "discover register", run: () => void showDiscover() },
-    { group: "操作", label: "添加房间成员", glyph: "＋", keywords: "member join", run: () => $("addMember").click() },
-    { group: "操作", label: "新建房间", glyph: "＋", keywords: "create room", run: () => $("createRoom").click() },
+    { group: "Actions", label: "Edit room rules", hint: `v${current.revision}`, glyph: "✎", keywords: "rules limits budget policy collaboration", run: () => showRules("room") },
+    { group: "Actions", label: "Edit global rules", hint: `v${model().globalRevision}`, glyph: "✎", keywords: "global rules", run: () => showRules("global") },
+    { group: "Actions", label: "Preview what they receive", glyph: "{}", keywords: "preview context", run: () => void previewQuery() },
+    { group: "Actions", label: "Find local sessions", hint: "Codex and Claude sessions on this computer", glyph: "＋", keywords: "discover register", run: () => void showDiscover() },
+    { group: "Actions", label: "Add members", glyph: "＋", keywords: "member join", run: () => $("addMember").click() },
+    { group: "Actions", label: "New room", glyph: "＋", keywords: "create room", run: () => $("createRoom").click() },
   ];
 }
 
@@ -74,7 +75,7 @@ export function renderPalette() {
     .sort((a, b) => b.score - a.score)
     .map((x) => x.c)
     .slice(0, 12);
-  if (!query) paletteItems.sort((a, b) => ["房间", "会话", "操作", "视图"].indexOf(a.group) - ["房间", "会话", "操作", "视图"].indexOf(b.group));
+  if (!query) paletteItems.sort((a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group));
   paletteIndex = Math.min(paletteIndex, Math.max(0, paletteItems.length - 1));
   let group = "";
   $("paletteList").innerHTML = paletteItems.length
@@ -85,7 +86,7 @@ export function renderPalette() {
           return `${heading}<button type="button" role="option" aria-selected="${i === paletteIndex}" class="${i === paletteIndex ? "active" : ""}" data-palette="${i}"><span class="palette-item-glyph">${escapeHtml(c.glyph)}</span><b>${escapeHtml(c.label)}</b>${c.hint ? `<small>${escapeHtml(c.hint)}</small>` : ""}</button>`;
         })
         .join("")
-    : '<p class="palette-empty">没有匹配的房间、会话或操作</p>';
+    : '<p class="palette-empty">No matching rooms, sessions or actions</p>';
   $("paletteList").querySelector(".active")?.scrollIntoView({ block: "nearest" });
 }
 
