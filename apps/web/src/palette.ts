@@ -75,7 +75,9 @@ export function renderPalette() {
     .sort((a, b) => b.score - a.score)
     .map((x) => x.c)
     .slice(0, 12);
-  if (!query) paletteItems.sort((a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group));
+  // one heading per group: with a query, groups rank by their best match
+  const rank = query ? [...new Set(paletteItems.map((c) => c.group))] : groupOrder;
+  paletteItems.sort((a, b) => rank.indexOf(a.group) - rank.indexOf(b.group));
   paletteIndex = Math.min(paletteIndex, Math.max(0, paletteItems.length - 1));
   let group = "";
   $("paletteList").innerHTML = paletteItems.length

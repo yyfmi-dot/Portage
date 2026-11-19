@@ -183,12 +183,27 @@
   border-radius: 50%;
   background: #d87243;
   box-shadow: 0 0 0 3px #d8724333;
-  animation: unread-pulse 2s ease-in-out infinite;
   z-index: 3;
 }
+/* the pulse is a ring scaled on the compositor; animating box-shadow repaints every frame */
+.unread-dot::after,
+.rcpt.waiting i::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: inherit;
+  animation: unread-pulse 2s ease-out infinite;
+}
 @keyframes unread-pulse {
-  50% {
-    box-shadow: 0 0 0 6px #d8724300;
+  from {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  70%,
+  to {
+    transform: scale(2.6);
+    opacity: 0;
   }
 }
 .unread-tag {

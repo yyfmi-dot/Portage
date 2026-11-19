@@ -469,6 +469,8 @@ kbd {
   display: flex;
   flex-direction: column;
   overflow: auto;
+  /* Chat scrolls its own list; keep the header from shifting when switching views */
+  scrollbar-gutter: stable;
 }
 .room-header {
   flex-shrink: 0;

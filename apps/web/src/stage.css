@@ -535,8 +535,8 @@
   color: #9a6a42;
 }
 .rcpt.waiting i {
+  position: relative;
   background: #d9a074;
-  animation: unread-pulse 2s ease-in-out infinite;
 }
 .rcpt.failed {
   background: #f6e3de;
