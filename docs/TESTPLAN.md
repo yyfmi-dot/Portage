@@ -47,6 +47,8 @@
 - **窄屏与长名称**：900 px 以下工具栏换行、舞台按容器尺寸缩放；会话名过长时工位、成员、关系图、消息头、唤醒预览均省略显示并保留完整 `title`。
 - **交互**：提示条在顶栏下方，不压输入框；归档会话带 7 秒「Undo」；共享文件按原名合并为最新版本 + 版本数；`⌘K` 无查询时按分组排序、有查询时按相关度；消息与原生记录正文渲染行内代码和链接。
 - **命名**：成员名直接取各会话原生标题，Portage 不注入角色或职责；演示里的名字只是种子数据。
+- **文件查看器**：十类样例文件逐一打开、逐个标签切换，控制台 0 错误。Markdown 有大纲、KaTeX 公式、Mermaid 图、shiki 高亮代码块（带复制）、任务列表；CSV / TSV / XLSX 表格按列推断数值与日期，可排序、可筛选，带数据条；图表在折线、面积、柱状、散点之间切换，X 与序列可选，量级相差 10 倍以上的序列分面板，分类柱按值排序，附最新 / 最小 / 最大 / 均值 / 变化；JSON 显示树形，有对象数组时出表格与图表；`.mmd` 渲染为图；HTML 在 `sandbox="allow-scripts"` 的 srcdoc 里运行，探针确认读不到父页面、连不上 Daemon；PDF、图片（棋盘底、缩放、原始尺寸）、代码按扩展名高亮。图表区随宽度重绘不抖动（只在宽度变化 ≥ 8 px 时、每帧一次）。渲染库全部按需加载，首屏主 JS 约 93 KB。
+- **Daemon 来源校验**：此前任何网页都能向 `127.0.0.1` 的 Daemon 发 `text/plain` POST 唤醒 agent。现在非本机 `Origin`（含 `null`）与非本机 `Host`（防 DNS 重绑定）一律 403，CORS 只回显本机来源；无 `Origin` 的 MCP / CLI 不受影响。文件内容接口带 `CSP: sandbox`（PDF 除外）与 `nosniff`。
 
 ## 真实 Codex 三成员复跑（2026-11-19）
 
@@ -61,6 +63,7 @@
 - **GPU 进程开销**：GPU 进程由整个浏览器共享，按进程取的 CPU 时间无法单独归到 Portage 页面，只以帧率和主线程开销为准。
 - **Claude Code 完整回合**：需要 API key，见上文。
 - **真人用户测试**：尚未做。
+- **文件查看器范围**：Excel 只读 `.xlsx`（旧 `.xls` 按二进制处理）；不解析 Vega-Lite 等图表规格文件；表格最多显示前 1000 行（筛选与排序作用于全部行）。
 - 开发期依赖（`vitest`/`vite` 的传递依赖）存在已知漏洞告警，修复需跨大版本升级，不进入运行时；运行时依赖 `npm audit --omit=dev` 为 0。
 
 ## 执行节奏
@@ -90,6 +93,7 @@
 | `@portage/core`（持久化补充） | 原生记录与游标重启后保留，再读不重复导入 |
 | `@portage/daemon`（原生房间） | 真实 runtime + 真实 NativeTurnAdapter + 假 codex：发现并登记、统筹房间完整闭环（6 条消息全部 native_confirmed、回复 ack、轮次计数）、回合失败显示原因且下一条照常提交、改绑 / 取消 / 确认、中断 |
 | `@portage/daemon`（有界快照） | 80 条历史只下发最近 50 条（`hasMore` / `fromSeq`）、`beforeSeq` 分页、未知会话与未知投递上下文 404 |
+| `@portage/daemon`（来源与文件内容） | 外站 / `null` Origin 与外部 Host 403 且无 CORS 回显，本机来源放行；产物内容按 MIME 返回（文本带 charset、无类型时按扩展名推断）、`CSP: sandbox`、inline 文件名、未知 id 404 |
 | `@portage/mcp`（补充） | 每个工具都声明 `readOnlyHint` 或 `destructiveHint: false`，headless 回合里不会被审批拒绝 |
 
 运行：`npm test` · `npm run typecheck` · `npm run daemon:serve` · `npm run dev:web` · `npm run daemon:demo`

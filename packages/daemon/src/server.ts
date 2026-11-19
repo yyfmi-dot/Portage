@@ -435,9 +435,21 @@ export async function startServer(port = DEFAULT_PORT, options: Pick<RuntimeOpti
   return { server, runtime, port };
 }
 
+/**
+ * Only this machine's pages may talk to the daemon. Without the Origin check any website open in
+ * the browser could post (a text/plain body needs no preflight) and wake agents; without the Host
+ * check, DNS rebinding gets around it. Callers outside a browser (MCP, CLI) send no Origin.
+ */
+const LOCAL_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+
 async function handle(req: IncomingMessage, res: ServerResponse, runtime: DaemonRuntime) {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const method = req.method ?? "GET";
+  const origin = req.headers.origin;
+  if ((origin !== undefined && !LOCAL_ORIGIN.test(origin)) || !LOCAL_HOST.test(req.headers.host ?? "")) {
+    return send(res, 403, { error: "only pages served from this machine may call the Portage daemon" });
+  }
 
   if (method === "OPTIONS") {
     cors(res);
@@ -513,7 +525,10 @@ function optionalInt(value: unknown) {
 }
 
 function cors(res: ServerResponse) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const origin = res.req?.headers.origin;
+  if (!origin || !LOCAL_ORIGIN.test(origin)) return;
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }

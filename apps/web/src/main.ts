@@ -1,6 +1,7 @@
 import "./prototype.css";
 import "./portage.css";
 import "./stage.css";
+import "./viewer/viewer.css";
 import { api, type DiscoveredEndpoint } from "./api.js";
 import { $, ui, model, session, room } from "./state.js";
 import { toast, senderName, modeLabel, countdownText } from "./format.js";
@@ -292,15 +293,7 @@ $("nameForm").addEventListener("submit", (event) => {
   ($("nameDialog") as HTMLDialogElement).close();
   void ui.nameAction?.(value);
 });
-$("closeName").addEventListener("click", () => ($("nameDialog") as HTMLDialogElement).close());
-$("fileCopyPath").addEventListener("click", () => {
-  const path = $("fileCopyPath").dataset.path ?? "";
-  void navigator.clipboard?.writeText(path).then(
-    () => toast("Path copied"),
-    () => toast(path),
-  );
-});
-document.addEventListener("dragstart", (event) => {
+$("closeName").addEventListener("click", () => ($("nameDialog") as HTMLDialogElement).close());document.addEventListener("dragstart", (event) => {
   const id = (event.target as HTMLElement).closest<HTMLElement>("[data-session]")?.dataset.session;
   if (id) event.dataTransfer?.setData("text/portage-session", id);
 });

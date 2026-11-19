@@ -2,6 +2,8 @@ import type { Artifact, NativeEvent } from "@portage/core";
 import { $, stateLabels, reasonShort, deliveryStateLabels, type VMessage, ui, model, session, room } from "./state.js";
 import { isUnread } from "./model.js";
 import { hasOlder } from "./data.js";
+import { api } from "./api.js";
+import { kindBadge } from "./viewer/kind.js";
 import { escapeHtml, senderName, statusFor, timeLabel, initial, modeLabel, richText, formatBytes, setHtml, plural } from "./format.js";
 
 /**
@@ -78,7 +80,12 @@ export function emptyChat(direct: boolean) {
 }
 
 export function artifactMarkup(item: Artifact, versions = 1) {
-  return `<button class="artifact-card" data-artifact="${item.id}"><span class="artifact-icon">▤</span><span><b>${escapeHtml(item.originalName)}</b><small>${versions > 1 ? `${versions} versions · latest v${item.version}` : `v${item.version}`} · ${formatBytes(item.byteSize)} · ${escapeHtml(item.createdBy === "user" ? "You" : senderName(model().sessionByParticipant.get(item.createdBy) ?? item.createdBy))}</small></span></button>`;
+  const { kind, label } = kindBadge(item);
+  const icon =
+    kind === "image" || kind === "svg"
+      ? `<span class="artifact-icon thumb"><img src="${api.artifactUrl(item.id)}" alt="" loading="lazy" draggable="false" /></span>`
+      : `<span class="artifact-icon kind-badge kind-${kind}">${label}</span>`;
+  return `<button class="artifact-card" data-artifact="${item.id}">${icon}<span><b>${escapeHtml(item.originalName)}</b><small>${versions > 1 ? `${versions} versions · latest v${item.version}` : `v${item.version}`} · ${formatBytes(item.byteSize)} · ${escapeHtml(item.createdBy === "user" ? "You" : senderName(model().sessionByParticipant.get(item.createdBy) ?? item.createdBy))}</small></span></button>`;
 }
 
 /** The direct conversation with a session, once one exists. */
@@ -142,7 +149,7 @@ export function renderChat() {
           const quote = parent
             ? `<button class="reply-quote" data-message="${parent.id}"><b>${escapeHtml(senderName(parent.sender))}</b>${escapeHtml(parent.text.slice(0, 60))}${parent.text.length > 60 ? "…" : ""}</button>`
             : "";
-          return `${divider}<article data-id="${item.id}" class="message ${ui.freshMessages.has(item.id) ? "fresh" : ""} ${continued ? "continued" : ""} ${item.sender === "user" ? "from-user" : ""}" style="--agent-color:${author?.color ?? "#d87243"}"><span class="avatar ${author?.provider === "Claude" ? "claude" : ""} ${item.sender === "user" ? "user" : ""}">${item.sender === "user" ? "You" : initial(author)}</span><div class="message-main"><div class="message-header"><b>${escapeHtml(senderName(item.sender))}</b><span class="message-source">${author ? `${author.provider} · ${author.host}` : ""}${item.direct ? " · direct" : ""}${item.demo ? " · demo" : ""}</span><time>${timeLabel(item.at)}</time></div>${quote}<div class="message-body">${richText(item.text)}${item.revision > 1 ? ` <small>(edited, v${item.revision})</small>` : ""}</div>${item.artifacts.map((a) => artifactMarkup(a)).join("")}${receiptChips(item)}<div class="message-actions"><button data-message="${item.id}">Delivery</button>${item.sender === "user" ? `<button data-edit-message="${item.id}">Edit</button>` : ""}<button data-hide-message="${item.id}">Hide</button></div></div></article>`;
+          return `${divider}<article data-id="${item.id}" class="message ${ui.freshMessages.has(item.id) ? "fresh" : ""} ${continued ? "continued" : ""} ${item.sender === "user" ? "from-user" : ""}" style="--agent-color:${author?.color ?? "#d87243"}"><span class="avatar ${author?.provider === "Claude" ? "claude" : ""} ${item.sender === "user" ? "user" : ""}">${item.sender === "user" ? "You" : initial(author)}</span><div class="message-main"><div class="message-header"><b>${escapeHtml(senderName(item.sender))}</b><span class="message-source">${author ? `${author.provider} · ${author.host}` : ""}${item.direct ? " · direct" : ""}${item.demo ? " · demo" : ""}</span><time>${timeLabel(item.at)}</time></div>${quote}<div class="message-body">${richText(item.text)}${item.revision > 1 ? ` <small>(edited, v${item.revision})</small>` : ""}</div>${item.artifacts.length ? `<div class="artifact-grid">${item.artifacts.map((a) => artifactMarkup(a)).join("")}</div>` : ""}${receiptChips(item)}<div class="message-actions"><button data-message="${item.id}">Delivery</button>${item.sender === "user" ? `<button data-edit-message="${item.id}">Edit</button>` : ""}<button data-hide-message="${item.id}">Hide</button></div></div></article>`;
         })
         .join("")
     : emptyChat(Boolean(target));

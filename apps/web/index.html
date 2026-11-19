@@ -290,24 +290,25 @@
       <div class="query-meta" id="queryMeta"></div>
       <pre id="queryPreview"></pre>
     </dialog>
-    <dialog id="fileDialog" class="dialog query-dialog file-dialog">
-      <form method="dialog">
-        <header>
-          <div>
-            <span class="room-eyebrow">Shared file</span>
-            <h2 id="fileTitle">File</h2>
-          </div>
-          <button class="dialog-close" aria-label="Close preview">×</button>
-        </header>
-      </form>
-      <div class="query-meta" id="fileMeta"></div>
-      <div class="file-versions" id="fileVersions"></div>
-      <div class="file-body" id="fileBody"></div>
-      <footer class="file-actions">
-        <button type="button" class="button secondary" id="fileCopyPath">Copy path</button
-        ><a class="button secondary" id="fileDownload" download>Download</a
-        ><a class="button send-button" id="fileOpen" target="_blank" rel="noopener noreferrer">Open in new tab ↗</a>
-      </footer>
+    <dialog id="fileDialog" class="dialog file-dialog" aria-labelledby="fileTitle">
+      <header class="viewer-head">
+        <span id="fileBadge" class="kind-badge">FILE</span>
+        <div class="viewer-titles">
+          <h2 id="fileTitle">File</h2>
+          <div class="viewer-meta" id="fileMeta"></div>
+        </div>
+        <div class="viewer-actions">
+          <button type="button" id="fileCopy" class="viewer-action">Copy</button
+          ><a id="fileDownload" class="viewer-action" download>Download</a
+          ><a id="fileOpen" class="viewer-action" target="_blank" rel="noopener noreferrer">Open ↗</a
+          ><button type="button" id="fileClose" class="dialog-close" aria-label="Close preview">×</button>
+        </div>
+      </header>
+      <div class="viewer-bar">
+        <div class="viewer-tabs" id="fileTabs" role="tablist" aria-label="View"></div>
+        <div class="file-versions" id="fileVersions"></div>
+      </div>
+      <div class="viewer-body" id="fileBody"></div>
     </dialog>
     <dialog id="nameDialog" class="dialog name-dialog">
       <form id="nameForm">

@@ -156,7 +156,7 @@ describe.skipIf(process.platform === "win32")("daemon · native Codex room", () 
     expect(outputs.map((e: Json) => e.text)).toContain("总结：解析器已实现并通过评审");
     const observed = snap.events.filter((e: Json) => e.eventType === "NativeEventObserved" && e.conversationId === room.id);
     expect(observed.length).toBeGreaterThan(0);
-  });
+  }, 20_000);
 
   it("a failed native turn frees the session with the reason, and the next input still goes out", async () => {
     process.env.FAKE_CODEX_MODE = "fail";

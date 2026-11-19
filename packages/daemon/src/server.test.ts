@@ -41,6 +41,25 @@ describe("daemon HTTP API L4 closed loop", () => {
     if (home) rmSync(home, { recursive: true, force: true });
   });
 
+  it("refuses pages from other origins and rebinding hosts, allows this machine's pages", async () => {
+    const evil = await fetch(`${base}/api/conversations/room_dev/send`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain", Origin: "https://evil.example" },
+      body: JSON.stringify({ text: "wake everyone" }),
+    });
+    expect(evil.status).toBe(403);
+    expect(evil.headers.get("access-control-allow-origin")).toBeNull();
+    expect((await fetch(`${base}/api/snapshot`, { headers: { Origin: "null" } })).status).toBe(403);
+    const { request } = await import("node:http");
+    const rebound = await new Promise<number>((resolve, reject) =>
+      request(`${base}/api/health`, { headers: { Host: "attacker.example:8791" } }, (r) => resolve(r.statusCode ?? 0)).on("error", reject).end(),
+    );
+    expect(rebound).toBe(403);
+    const local = await fetch(`${base}/api/health`, { headers: { Origin: "http://127.0.0.1:5173" } });
+    expect(local.status).toBe(200);
+    expect(local.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:5173");
+  });
+
   it("serves dual-provider three-member room with valid native identities", async () => {
     const health = await fetch(`${base}/api/health`).then((r) => r.json() as Promise<Json>);
     expect(health.ok).toBe(true);
