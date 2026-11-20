@@ -136,6 +136,10 @@ route("POST", "/api/rooms", ({ runtime, body }) => {
   const id = `room_${Date.now().toString(36)}`;
   return runtime.bus.createRoom({ id, title, createdBy: "user", wakeMode: "swarm" });
 });
+route("POST", "/api/rooms/:id", ({ runtime, params, body }) => {
+  if (runtime.bus.conversations.get(params[0]!)?.kind !== "room") throw new HttpError(404, `room not found: ${params[0]}`);
+  return runtime.bus.renameRoom({ conversationId: params[0]!, title: requireString(body.title, "title") });
+});
 route("POST", "/api/rooms/:id/wake-mode", ({ runtime, params, body }) =>
   runtime.bus.setWakeMode({
     conversationId: params[0]!,

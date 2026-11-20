@@ -352,6 +352,8 @@ export function describeEvent(e: BusEvent, m: Model, s: Snapshot): VEvent | null
       return { ...base, sessionId: e.entityId, description: `${nameOf(e.entityId)} · name or settings updated`, status: "Logged" };
     case "RoomCreated":
       return { ...base, description: `New room “${p.title}”`, status: "Logged" };
+    case "RoomRenamed":
+      return { ...base, description: `Room renamed from “${p.previous}” to “${p.title}”`, status: "Logged" };
     case "MessageRevised":
       return { ...base, messageId: e.entityId, description: `Message edited to v${p.revision}`, status: "Undelivered copies use the new version" };
     default:

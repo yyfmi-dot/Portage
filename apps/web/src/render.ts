@@ -100,12 +100,14 @@ export function renderHeader() {
   $("viewTitle").textContent = target?.name ?? current.name;
   $("viewSubtitle").textContent = target
     ? `${target.writable ? "Message it directly" : "Read-only: you can view its record"} · call it with @${target.alias} in a room`
-    : "Bring AI sessions from different tools into one room and get things done together.";
+    : "Sessions from different tools, working in one room.";
+  $("viewSubtitle").title = $("viewSubtitle").textContent ?? "";
   $("roomRulesLabel").textContent = `Room rules v${current.revision}`;
   $("addMember").hidden = direct;
   $("roomRules").hidden = direct;
   ($("wakeMode") as HTMLSelectElement).value = current.mode;
   ($("wakeMode") as HTMLSelectElement).disabled = direct;
+  document.querySelector<HTMLElement>(".wake-control")!.hidden = direct;
   $("pauseRoom").hidden = direct;
   $("pauseRoom").textContent = current.paused ? "Resume auto-messaging" : "Pause auto-messaging";
   for (const button of document.querySelectorAll<HTMLButtonElement>("[data-view]")) {
@@ -115,5 +117,5 @@ export function renderHeader() {
   $("roomView").hidden = ui.view !== "room";
   $("chatView").hidden = ui.view !== "chat";
   $("flowView").hidden = ui.view !== "flow";
-  $("activityPanel").hidden = ui.view === "chat";
+  $("activityPanel").hidden = ui.view !== "room";
 }

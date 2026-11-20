@@ -3,7 +3,7 @@ import { escapeHtml, statusFor, initial, modeLabel, plural, sinceLabel } from ".
 import { api } from "./api.js";
 import { act } from "./data.js";
 import { render } from "./render.js";
-import { selectRoom, selectSession, previewQuery, demoCollaboration } from "./actions.js";
+import { selectRoom, selectSession, previewQuery, demoCollaboration, renameRoom } from "./actions.js";
 import { showRules, showDiscover } from "./dialogs.js";
 
 export type Command = { group: string; label: string; hint?: string; glyph: string; keywords?: string; run: () => void };
@@ -55,6 +55,7 @@ export function commands(): Command[] {
     { group: "Actions", label: "Find local sessions", hint: "Codex and Claude sessions on this computer", glyph: "＋", keywords: "discover register", run: () => void showDiscover() },
     { group: "Actions", label: "Add members", glyph: "＋", keywords: "member join", run: () => $("addMember").click() },
     { group: "Actions", label: "New room", glyph: "＋", keywords: "create room", run: () => $("createRoom").click() },
+    { group: "Actions", label: "Rename room", hint: current.name, glyph: "✎", keywords: "rename room title name", run: () => renameRoom() },
     ...model().archived.map((s) => ({
       group: "Archived",
       label: `Restore ${s.name}`,

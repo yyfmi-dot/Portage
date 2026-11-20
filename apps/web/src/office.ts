@@ -1,4 +1,4 @@
-import { $, stationPositions, stateLabels, reasonShort, type VSession, ui, model, session, room, speechEnd, SPEECH_YIELD_MS } from "./state.js";
+import { $, stationPosition, stateLabels, reasonShort, type VSession, ui, model, session, room, speechEnd, SPEECH_YIELD_MS } from "./state.js";
 import { isUnread } from "./model.js";
 import { escapeHtml, memberBadge, statusFor, queueFor, sparkline, setHtml, plural } from "./format.js";
 
@@ -24,7 +24,7 @@ export function renderOffice() {
   $("workstations").innerHTML = current.members
     .map((id, index) => {
       const item = session(id)!;
-      const position = stationPositions[index % stationPositions.length]!;
+      const position = stationPosition(index, current.members.length);
       const status = statusFor(item);
       const count = queueFor(id).length;
       const selected = ui.inspector?.kind === "session" && ui.inspector.id === id;
@@ -42,13 +42,14 @@ export function renderOffice() {
         : "";
       // Top-row bubbles open sideways (toward the room's centre) so they never leave the stage.
       const placement = position[1] < 45 ? `row-top ${position[0] > 60 ? "col-right" : "col-left"}` : "";
-      return `<button class="workstation ${status} ${placement} ${selected ? "selected" : ""} ${receiving ? "receiving" : ""} ${justRead ? "just-read" : ""} ${unread ? "has-unread" : ""} ${speech ? "speaking" : ""}" data-inspect-session="${id}" style="left:${position[0]}%;top:${position[1]}%;--agent-color:${item.color};--i:${index}" aria-label="${escapeHtml(item.name)}${badge ? `, ${badge}` : ""}, ${stateLabels[status]}${count ? `, ${count} queued` : ""}"><span class="station-label" title="${escapeHtml(item.name)}"><b><span class="station-name">${escapeHtml(item.name)}</span>${badge ? `<span class="station-role">${badge}</span>` : ""}</b><small>${item.provider} / ${item.host}</small></span><span class="floor-glow"></span><span class="desk"></span><span class="lamp"><i></i></span><span class="monitor"><i class="screen-lines"></i></span>${stack}<span class="agent-figure"><i class="agent-head"></i><i class="agent-body"></i></span>${status === "dormant" ? '<span class="sleep-symbol">z z</span>' : ""}${status === "waiting_human" ? '<span class="attention-ring"></span><span class="raise-hand" aria-hidden="true">!</span>' : ""}<span class="delivered-tag">Delivered ↓</span><span class="read-tag">Read ✓</span>${unread ? `<span class="unread-dot" title="${plural(unread, "message")} delivered and not read yet"></span>` : ""}${speech}${item.detail && status !== "running" ? `<span class="host-note" title="${escapeHtml(item.detail)}">${escapeHtml(item.detail.length > 22 ? `${item.detail.slice(0, 22)}…` : item.detail)}</span>` : ""}<span class="station-state"><span class="state-pill">${stateLabels[status]}</span>${count ? `<span class="queue-tag">${count} queued</span>` : ""}${unread ? `<span class="unread-tag">${unread} unread</span>` : ""}</span></button>`;
+      return `<button class="workstation ${status} ${placement} ${selected ? "selected" : ""} ${receiving ? "receiving" : ""} ${justRead ? "just-read" : ""} ${unread ? "has-unread" : ""} ${speech ? "speaking" : ""}" data-inspect-session="${id}" draggable="true" data-drag-member="${id}" style="left:${position[0]}%;top:${position[1]}%;--agent-color:${item.color};--i:${index}" aria-label="${escapeHtml(item.name)}${badge ? `, ${badge}` : ""}, ${stateLabels[status]}${count ? `, ${count} queued` : ""}"><span class="station-label" title="${escapeHtml(item.name)}"><b><span class="station-name">${escapeHtml(item.name)}</span>${badge ? `<span class="station-role">${badge}</span>` : ""}</b><small>${item.provider} / ${item.host}</small></span><span class="floor-glow"></span><span class="desk"></span><span class="lamp"><i></i></span><span class="monitor"><i class="screen-lines"></i></span>${stack}<span class="agent-figure"><i class="agent-head"></i><i class="agent-body"></i></span>${status === "dormant" ? '<span class="sleep-symbol">z z</span>' : ""}${status === "waiting_human" ? '<span class="attention-ring"></span><span class="raise-hand" aria-hidden="true">!</span>' : ""}<span class="delivered-tag">Delivered ↓</span><span class="read-tag">Read ✓</span>${unread ? `<span class="unread-dot" title="${plural(unread, "message")} delivered and not read yet"></span>` : ""}${speech}${item.detail && status !== "running" ? `<span class="host-note" title="${escapeHtml(item.detail)}">${escapeHtml(item.detail.length > 22 ? `${item.detail.slice(0, 22)}…` : item.detail)}</span>` : ""}<span class="station-state"><span class="state-pill">${stateLabels[status]}</span>${count ? `<span class="queue-tag">${count} queued</span>` : ""}${unread ? `<span class="unread-tag">${unread} unread</span>` : ""}</span></button>`;
     })
     .join("");
   const userSpeech = speechMarkup("user", now, "i");
   const door = document.querySelector(".office-door")!;
   door.classList.toggle("speaking", Boolean(userSpeech));
   door.innerHTML = `<span>You</span>${userSpeech}`;
+  if (userSpeech) placeDoorSpeech(door);
   const members = current.members.map((id) => session(id)!);
   const active = members.filter((item) => item.execution === "running" && item.enabled).length;
   const dormant = members.filter((item) => item.execution === "dormant" && item.enabled).length;
@@ -74,8 +75,31 @@ export function renderOffice() {
   $("roomDropZone").hidden = !members.length || members.length >= 6;
   document.querySelector<HTMLElement>(".office-legend")!.hidden = !members.length;
   renderEmptyRoom(members.length);
-  $("demoCollaboration").hidden = members.length < 2;
+  $("demoCollaboration").hidden = members.length < 2 || ui.selection.kind === "session";
   ($("demoCollaboration") as HTMLButtonElement).disabled = ui.demoRunning;
+}
+
+/** Station spots depend on room size and stage shape, so the user's bubble picks the side of the door that covers the least. */
+function placeDoorSpeech(door: Element) {
+  const bubble = door.querySelector<HTMLElement>(".speech");
+  if (!bubble) return;
+  // what a member shows matters; the drop zone is only a hint and may sit under a passing bubble
+  const blockers = [
+    ...[...document.querySelectorAll<HTMLElement>("#workstations :is(.station-label, .monitor, .desk, .station-state)")].map((el) => ({ r: el.getBoundingClientRect(), weight: 1 })),
+    ...[...document.querySelectorAll<HTMLElement>("#roomDropZone:not([hidden])")].map((el) => ({ r: el.getBoundingClientRect(), weight: 0.2 })),
+  ];
+  const covered = () => {
+    const b = bubble.getBoundingClientRect();
+    return blockers.reduce(
+      (sum, { r, weight }) =>
+        sum + weight * Math.max(0, Math.min(b.right, r.right) - Math.max(b.left, r.left)) * Math.max(0, Math.min(b.bottom, r.bottom) - Math.max(b.top, r.top)),
+      0,
+    );
+  };
+  const right = covered();
+  if (!right) return;
+  bubble.classList.add("flip");
+  if (covered() >= right) bubble.classList.remove("flip");
 }
 
 /** An empty room explains itself once, with the next step that actually applies. */

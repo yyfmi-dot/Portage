@@ -175,12 +175,14 @@ export async function publishRules() {
 }
 
 export function renderMemberOptions() {
-  $("memberOptions").innerHTML = model()
-    .sessions.map((item) => {
+  const sessions = model().sessions;
+  const allIn = sessions.length > 0 && sessions.every((item) => room().members.includes(item.id));
+  $("memberOptions").innerHTML = `${sessions
+    .map((item) => {
       const joined = room().members.includes(item.id);
       return `<div class="member-option"><span class="avatar ${item.provider === "Claude" ? "claude" : ""}">${initial(item)}</span><span class="member-info"><b>${escapeHtml(item.name)}</b><small title="${escapeHtml(item.nativeIdentity)}">${item.provider} · ${item.host}</small></span><button data-add-session="${item.id}" ${joined ? "disabled" : ""}>${joined ? "Added" : "Add"}</button></div>`;
     })
-    .join("");
+    .join("")}<div class="member-more"><span>${allIn ? "Every registered session is already here." : sessions.length ? "Not in the list?" : "No sessions registered yet."}</span><button type="button" class="text-button" data-find-sessions>Find local sessions →</button></div>`;
 }
 
 export async function showDiscover() {
@@ -215,7 +217,7 @@ export function renderDiscover(endpoints: DiscoveredEndpoint[]) {
     : '<div class="dialog-empty"><span class="mascot" aria-hidden="true"><i class="agent-head"></i><i class="agent-body"></i></span><b>No sessions found yet</b><p>Start one in a terminal and it shows up here.</p><ol><li>Open a terminal and run <code>codex</code> or <code>claude</code></li><li>Say anything, so it leaves a session record</li><li>Come back and click ＋ next to “Sessions” on the left</li></ol></div>';
 }
 
-export function showNameDialog(title: string, label: string, initialValue: string, description: string, callback: (value: string) => Promise<void> | void, maxLength = 50) {
+export function showNameDialog(title: string, label: string, initialValue: string, description: string, callback: (value: string) => Promise<unknown> | void, maxLength = 50) {
   ui.nameAction = callback;
   $("nameDialogTitle").textContent = title;
   $("nameLabel").textContent = label;

@@ -195,6 +195,20 @@ describe("daemon HTTP API L4 closed loop", () => {
     expect(text).not.toContain("collaboration.md");
   });
 
+  it("renames a room without touching its members or history", async () => {
+    const before = (await snapshot()).conversations.find((c: { id: string }) => c.id === "room_dev");
+    const renamed = await post("/api/rooms/room_dev", { title: "  设计评审  " });
+    expect(renamed.status).toBe(200);
+    expect(renamed.json.title).toBe("设计评审");
+    const after = await snapshot();
+    expect(after.conversations.find((c: { id: string }) => c.id === "room_dev")).toMatchObject({ title: "设计评审", kind: before.kind });
+    expect(after.events.some((e: { eventType: string; payload: { previous?: string } }) => e.eventType === "RoomRenamed" && e.payload.previous === before.title)).toBe(true);
+    expect((await post("/api/rooms/room_dev", { title: "   " })).status).toBe(400);
+    expect((await post("/api/rooms/room_dev", { title: "x".repeat(51) })).status).toBe(400);
+    expect((await post("/api/rooms/room_missing", { title: "Nope" })).status).toBe(404);
+    await post("/api/rooms/room_dev", { title: before.title });
+  });
+
   it("registers a discovered session, joins/leaves, swarm suppresses wake, conflicts are explicit", async () => {
     const registered = await post("/api/sessions", {
       provider: "codex",
@@ -209,6 +223,10 @@ describe("daemon HTTP API L4 closed loop", () => {
     await post("/api/rooms/room_dev/members", { participantId });
     const left = await post(`/api/rooms/room_dev/members/${participantId}/leave`);
     expect(left.json.leftAt).toBeTruthy();
+    const afterLeave = await snapshot();
+    expect(afterLeave.sessions.find((s: { id: string }) => s.id === registered.json.id)).toMatchObject({ displayName: "资料会话", nativeIdentity: "pid-424242" });
+    expect((await post("/api/rooms/room_dev/members", { participantId })).status).toBe(200);
+    await post(`/api/rooms/room_dev/members/${participantId}/leave`);
 
     await post("/api/rooms/room_dev/wake-mode", { mode: "swarm" });
     const swarm = await post("/api/conversations/room_dev/send", { text: "开放讨论", idempotencyKey: "l4_swarm" });

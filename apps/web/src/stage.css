@@ -604,6 +604,9 @@
 .chat-empty > span {
   font-size: 13px;
 }
+.chat-empty-actions {
+  margin-top: 8px;
+}
 .suggestions {
   display: flex;
   flex-direction: column;

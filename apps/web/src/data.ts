@@ -6,13 +6,15 @@ import { toast } from "./format.js";
 import { render, renderConnection } from "./render.js";
 import { wakeCanvas } from "./canvas.js";
 
-export async function act(task: () => Promise<unknown>, success?: string) {
+export async function act(task: () => Promise<unknown>, success?: string): Promise<boolean> {
   try {
     await task();
     if (success) toast(success);
     await refresh();
+    return true;
   } catch (error) {
     toast(error instanceof Error ? error.message : String(error), "error");
+    return false;
   }
 }
 

@@ -3,14 +3,19 @@ import type { ContextMeta, HistorySlice, Snapshot } from "./api.js";
 
 export const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 export const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
-export const stationPositions: Array<[number, number]> = [
-  [43, 27],
-  [76, 27],
-  [43, 72],
-  [76, 72],
-  [24, 53],
-  [58, 53],
+/** Station spots per room size, so a small room stays balanced and the left side stays clear for the drop zone until it hides at six. */
+const stationLayouts: Array<Array<[number, number]>> = [
+  [[60, 46]],
+  [[45, 46], [75, 46]],
+  [[43, 27], [76, 27], [60, 72]],
+  [[43, 27], [76, 27], [43, 72], [76, 72]],
+  [[43, 27], [76, 27], [43, 72], [76, 72], [58, 53]],
+  [[43, 27], [76, 27], [43, 72], [76, 72], [24, 53], [58, 53]],
 ];
+export function stationPosition(index: number, count: number): [number, number] {
+  const layout = stationLayouts[Math.min(Math.max(count, 1), stationLayouts.length) - 1]!;
+  return layout[index % layout.length]!;
+}
 /** Where "you" sit in the flow graph, as percentages like the member positions. */
 export const userGraphPosition: [number, number] = [17, 16];
 export const graphPositions: Array<[number, number]> = [
@@ -212,7 +217,7 @@ export const ui = {
   attachment: null as File | null,
   ruleScope: "room" as "room" | "global",
   hidden: new Set<string>(JSON.parse(localStorage.getItem("portage.hidden") ?? "[]") as string[]),
-  nameAction: null as null | ((value: string) => Promise<void> | void),
+  nameAction: null as null | ((value: string) => Promise<unknown> | void),
   closeStream: null as null | (() => void),
   demoRunning: false,
   mentionIndex: 0,

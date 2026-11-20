@@ -107,6 +107,7 @@ export const api = {
   directConversation: (id: string) => post<Conversation>(`/api/sessions/${id}/direct`),
 
   createRoom: (title: string) => post<Conversation>("/api/rooms", { title }),
+  renameRoom: (roomId: string, title: string) => post<Conversation>(`/api/rooms/${roomId}`, { title }),
   setWakeMode: (roomId: string, mode: string, coordinatorParticipantId?: string) =>
     post<RoomPolicy>(`/api/rooms/${roomId}/wake-mode`, { mode, coordinatorParticipantId }),
   setPaused: (roomId: string, paused: boolean) =>

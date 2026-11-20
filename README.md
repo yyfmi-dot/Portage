@@ -152,6 +152,7 @@ Add the snippet to the CLI's MCP config and restart it. The MCP server identifie
 | POST | `/api/sessions/:id/ready` | Mark ready; flush its inbox in order |
 | POST | `/api/sessions/:id/direct` | Get the direct conversation with a session |
 | POST | `/api/rooms` | Create a room |
+| POST | `/api/rooms/:id` | Rename a room (`{ title }`, up to 50 characters) |
 | POST | `/api/rooms/:id/wake-mode` | Coordinator / swarm / mention only / manual |
 | POST | `/api/rooms/:id/pause` | Pause or resume automatic communication |
 | POST | `/api/rooms/:id/policy` | Publish `collaboration.md` and budgets; an invalid YAML policy header rejects the whole document (400) |

@@ -809,6 +809,26 @@ export class MemoryBus implements PortageBusApi {
     return conversation;
   }
 
+  /** Only the room's label changes; members, history, rules and deliveries stay as they are. */
+  renameRoom(input: { conversationId: string; title: string; actorId?: string }): Conversation {
+    const conversation = this.requireConversation(input.conversationId);
+    if (conversation.kind !== "room") throw new Error("only rooms can be renamed");
+    const title = input.title.trim();
+    if (!title) throw new Error("title required");
+    if (title.length > 50) throw new Error("title must be 50 characters or fewer");
+    if (title === conversation.title) return structuredClone(conversation);
+    const previous = conversation.title;
+    conversation.title = title;
+    this.emit({
+      eventType: "RoomRenamed",
+      entityId: conversation.id,
+      actorId: input.actorId ?? "user",
+      conversationId: conversation.id,
+      payload: { title, previous },
+    });
+    return structuredClone(conversation);
+  }
+
   /** One direct conversation per session; the user talks to the session without room policy. */
   ensureDirectConversation(sessionId: string): Conversation {
     const session = this.requireSession(sessionId);

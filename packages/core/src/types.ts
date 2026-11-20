@@ -217,6 +217,7 @@ export type BusEventType =
   | "SessionBindingChanged"
   | "NativeEventObserved"
   | "RoomCreated"
+  | "RoomRenamed"
   | "RoomPolicyChanged"
   | "RoomPaused"
   | "MembershipChanged"

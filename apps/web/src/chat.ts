@@ -67,14 +67,18 @@ export function receiptChips(message: VMessage) {
 export function emptyChat(direct: boolean) {
   if (direct) return `<div class="empty-state chat-empty"><b>Start a direct chat</b><span>Messages go straight to it. It stays itself, with its own memory and the work it has in hand.</span></div>`;
   const current = room();
-  const lead = current.coordinator ? session(current.coordinator) : undefined;
+  if (!current.members.length)
+    return `<div class="empty-state chat-empty"><b>No one here yet</b><span>Add a few sessions to this room, then talk to all of them from here.</span><div class="chat-empty-actions"><button class="button primary" data-open-members>Add members</button></div></div>`;
+  const lead = current.mode === "coordinator" && current.coordinator ? session(current.coordinator) : undefined;
   const other = current.members.map((id) => session(id)!).find((s) => s.id !== lead?.id);
   const suggestions = [
-    lead ? `Please drive this: list the adapter changes we ship this week and hand them to the right people.` : "",
-    other ? `@${other.alias} could you check recent deliveries for any with an unclear outcome?` : "",
-    "Everyone, share where you are and what is blocking you.",
+    lead ? `Please drive this: break the task down and hand each part to the right person.` : "",
+    other ? `@${other.alias} what are you working on right now?` : "",
+    current.members.length > 1
+      ? `${lead ? "Everyone" : current.members.slice(0, 3).map((id) => `@${session(id)!.alias}`).join(" ")}, share where you are and what is blocking you.`
+      : "",
   ].filter(Boolean);
-  return `<div class="empty-state chat-empty"><b>No messages yet</b><span>${escapeHtml(modeLabel(current.mode))}. Try an opener below, or watch the demo first.</span><div class="suggestions">${suggestions
+  return `<div class="empty-state chat-empty"><b>No messages yet</b><span>${escapeHtml(modeLabel(current.mode))}. Try an opener below${current.members.length > 1 ? ", or watch the demo first" : ""}.</span><div class="suggestions">${suggestions
     .map((s) => `<button data-suggest="${escapeHtml(s)}">${richText(s).replace(/<button[^>]*>|<\/button>/g, "")}</button>`)
     .join("")}</div></div>`;
 }

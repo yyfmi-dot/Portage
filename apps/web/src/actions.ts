@@ -5,7 +5,14 @@ import { act, refresh } from "./data.js";
 import { render } from "./render.js";
 import { renderOffice } from "./office.js";
 import { mentionsIn } from "./chat.js";
-import { showSnapshot } from "./dialogs.js";
+import { showSnapshot, showNameDialog } from "./dialogs.js";
+
+export function renameRoom(id = ui.roomId) {
+  const current = room(id);
+  showNameDialog("Rename room", "Room name", current.name, "Only the name changes. Members, history and rules stay as they are.", (name) =>
+    act(() => api.renameRoom(id, name), "Room renamed"),
+  );
+}
 
 export function selectRoom(id: string) {
   ui.roomId = id;

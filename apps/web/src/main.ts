@@ -12,7 +12,7 @@ import { renderChat, renderComposer, renderWakePreview, renderMentionMenu, inser
 import { renderInspector } from "./inspector.js";
 import { renderGraph } from "./flow.js";
 import { bindCanvas, wakeCanvas } from "./canvas.js";
-import { selectRoom, selectSession, sendFromComposer, previewQuery, demoCollaboration } from "./actions.js";
+import { selectRoom, selectSession, sendFromComposer, previewQuery, demoCollaboration, renameRoom } from "./actions.js";
 import { showArtifact, showSnapshot, BUDGET_INPUTS, showRules, validateRules, insertFrontmatter, publishRules, renderMemberOptions, showDiscover, renderDiscover, showNameDialog } from "./dialogs.js";
 import { bindPalette, openPalette } from "./palette.js";
 
@@ -51,6 +51,12 @@ document.addEventListener("click", (event) => {
     render();
   } else if (data.openRules) showRules(data.openRules as "room" | "global");
   else if (data.scope) showRules(data.scope as "room" | "global");
+  else if (data.openMembers !== undefined) $("addMember").click();
+  else if (data.renameRoom !== undefined) renameRoom();
+  else if (data.findSessions !== undefined) {
+    ($("membersDialog") as HTMLDialogElement).close();
+    void showDiscover();
+  }
   else if (data.toggleSession) {
     const s = session(data.toggleSession)!;
     void act(() => api.setCommunication(s.id, !s.enabled), `${s.name} · receiving ${s.enabled ? "off" : "on"}`);
@@ -60,13 +66,8 @@ document.addEventListener("click", (event) => {
     void act(async () => {
       await api.joinRoom(current.id, s.participantId);
     }, "Added. It can read the history and wakes by the room's rules");
-  } else if (data.leaveSession) {
-    const s = session(data.leaveSession)!;
-    void act(async () => {
-      await api.leaveRoom(current.id, s.participantId);
-      if (ui.inspector?.id === s.id) ui.inspector = null;
-    }, "Removed from the room. Its session is untouched");
-  } else if (data.makeCoordinator) {
+  } else if (data.leaveSession) removeFromRoom(data.leaveSession, current.id);
+  else if (data.makeCoordinator) {
     const s = session(data.makeCoordinator)!;
     void act(() => api.setWakeMode(current.id, "coordinator", s.participantId), "New lead set: messages now go to it first");
   } else if (data.readySession) {
@@ -201,6 +202,9 @@ $("publishRules").addEventListener("click", () => void publishRules());
 $("previewQuery").addEventListener("click", () => void previewQuery());
 $("demoCollaboration").addEventListener("click", () => void demoCollaboration());
 $("createSession").addEventListener("click", () => void showDiscover());
+$("viewTitle").addEventListener("dblclick", () => {
+  if (ui.model && ui.selection.kind === "room") renameRoom();
+});
 $("pauseRoom").addEventListener("click", () => {
   const current = room();
   void act(() => api.setPaused(current.id, !current.paused), current.paused ? "Auto-messaging resumed · held messages are rechecked" : "Auto-messaging paused · new deliveries are held");
@@ -279,6 +283,7 @@ $("createRoom").addEventListener("click", () =>
     try {
       const created = await api.createRoom(name);
       await refresh();
+      ui.view = "room";
       selectRoom(created.id);
       toast("Room created");
     } catch (error) {
@@ -293,24 +298,45 @@ $("nameForm").addEventListener("submit", (event) => {
   ($("nameDialog") as HTMLDialogElement).close();
   void ui.nameAction?.(value);
 });
-$("closeName").addEventListener("click", () => ($("nameDialog") as HTMLDialogElement).close());document.addEventListener("dragstart", (event) => {
-  const id = (event.target as HTMLElement).closest<HTMLElement>("[data-session]")?.dataset.session;
+$("closeName").addEventListener("click", () => ($("nameDialog") as HTMLDialogElement).close());
+
+// Sessions drag in from the sidebar; members drag back out to it (or onto another room to move there).
+const MEMBER_DRAG = "text/portage-member";
+const dropTarget = (event: DragEvent) => {
+  const member = Boolean(event.dataTransfer?.types.includes(MEMBER_DRAG));
+  const el = (event.target as HTMLElement).closest<HTMLElement>(member ? "[data-drop-room],.sidebar" : "#roomDropZone,[data-drop-room],#office");
+  // the member's own room is where it already is
+  return { member, el: member && el?.dataset.dropRoom === ui.roomId ? null : el };
+};
+document.addEventListener("dragstart", (event) => {
+  const source = event.target as HTMLElement;
+  const member = source.closest<HTMLElement>("[data-drag-member]")?.dataset.dragMember;
+  if (member && event.dataTransfer) {
+    event.dataTransfer.setData(MEMBER_DRAG, JSON.stringify({ session: member, room: ui.roomId }));
+    event.dataTransfer.effectAllowed = "move";
+    document.body.classList.add("dragging-member");
+    return;
+  }
+  const id = source.closest<HTMLElement>("[data-session]")?.dataset.session;
   if (id) event.dataTransfer?.setData("text/portage-session", id);
 });
+document.addEventListener("dragend", () => document.body.classList.remove("dragging-member"));
 document.addEventListener("dragover", (event) => {
-  const target = (event.target as HTMLElement).closest("#roomDropZone,[data-drop-room],#office");
-  if (!target) return;
+  const { el } = dropTarget(event);
+  if (!el) return;
   event.preventDefault();
-  target.classList.add("drag-over");
+  el.classList.add("drag-over");
 });
 document.addEventListener("dragleave", (event) =>
-  (event.target as HTMLElement).closest("#roomDropZone,[data-drop-room],#office")?.classList.remove("drag-over"),
+  (event.target as HTMLElement).closest("#roomDropZone,[data-drop-room],#office,.sidebar")?.classList.remove("drag-over"),
 );
 document.addEventListener("drop", (event) => {
-  const target = (event.target as HTMLElement).closest<HTMLElement>("#roomDropZone,[data-drop-room],#office");
+  const { member, el: target } = dropTarget(event);
+  document.body.classList.remove("dragging-member");
   if (!target || !ui.model) return;
   event.preventDefault();
   target.classList.remove("drag-over");
+  if (member) return dropMember(event, target.dataset.dropRoom);
   const id = event.dataTransfer?.getData("text/portage-session");
   const s = id ? session(id) : undefined;
   if (!s) return;
@@ -322,6 +348,57 @@ document.addEventListener("drop", (event) => {
     ui.selection = { kind: "room", id: roomId };
   }, `${s.name} joined ${room(roomId).name}`);
 });
+
+function dropMember(event: DragEvent, toRoom?: string) {
+  const { session: id, room: fromRoom } = JSON.parse(event.dataTransfer?.getData(MEMBER_DRAG) || "{}") as { session?: string; room?: string };
+  const s = id ? session(id) : undefined;
+  if (!s || !fromRoom || !room(fromRoom).members.includes(s.id)) return;
+  if (!toRoom) return removeFromRoom(s.id, fromRoom);
+  const target = room(toRoom);
+  const wasThere = target.members.includes(s.id);
+  if (!wasThere && target.members.length >= 6) return toast("A room shows at most 6 members");
+  const restore = rejoin(fromRoom, s.id);
+  void act(async () => {
+    if (!wasThere) await api.joinRoom(toRoom, s.participantId);
+    await api.leaveRoom(fromRoom, s.participantId);
+    if (ui.inspector?.id === s.id) ui.inspector = null;
+  }).then((ok) =>
+    ok && toast(`${s.name} moved to ${target.name}. Its session is untouched`, "", {
+      label: "Undo",
+      run: () =>
+        void act(async () => {
+          await restore();
+          if (!wasThere) await api.leaveRoom(toRoom, s.participantId);
+        }, `${s.name} is back in ${room(fromRoom).name}`),
+    }),
+  );
+}
+
+/** Leaving only ends the membership: the session, its memory and its other rooms are untouched. */
+function removeFromRoom(sessionId: string, roomId: string) {
+  const s = session(sessionId)!;
+  const name = room(roomId).name;
+  const restore = rejoin(roomId, s.id);
+  void act(async () => {
+    await api.leaveRoom(roomId, s.participantId);
+    if (ui.inspector?.id === s.id) ui.inspector = null;
+  }).then((ok) =>
+    ok && toast(`${s.name} left ${name}. Its session is untouched`, "", {
+      label: "Undo",
+      run: () => void act(restore, `${s.name} is back in ${name}`),
+    }),
+  );
+}
+
+/** Captures the room before a member leaves so Undo also hands the lead back if it was theirs. */
+function rejoin(roomId: string, sessionId: string) {
+  const { mode, coordinator } = room(roomId);
+  const participantId = session(sessionId)!.participantId;
+  return async () => {
+    await api.joinRoom(roomId, participantId);
+    if (coordinator === sessionId) await api.setWakeMode(roomId, mode, participantId);
+  };
+}
 document.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();

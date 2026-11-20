@@ -171,6 +171,7 @@ MCP server 是 CLI 的子进程，靠进程祖先链认出自己属于哪个已�
 | POST | `/api/sessions/:id/ready` | 原生就绪，按序冲刷收件箱 |
 | POST | `/api/sessions/:id/direct` | 取得与该会话的私聊 |
 | POST | `/api/rooms` | 新建房间 |
+| POST | `/api/rooms/:id` | 房间改名（`{ title }`，最多 50 字） |
 | POST | `/api/rooms/:id/wake-mode` | 统筹 / Swarm / 仅 @ / 手动 |
 | POST | `/api/rooms/:id/pause` | 暂停或恢复自动通信 |
 | POST | `/api/rooms/:id/policy` | 发布 collaboration.md 与预算（`maxAutoRounds` / `agentMessagesPerMinute` / `maxConcurrent` / `maxWakeupsPerTrace`）；文档开头的 YAML 策略头经校验后执行，非法则整份拒绝（400） |

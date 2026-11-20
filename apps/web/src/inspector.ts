@@ -59,10 +59,10 @@ export function roomInspector() {
     .map((id) => {
       const item = session(id)!;
       const badge = memberBadge(item);
-      return `<button class="inspector-member" data-inspect-session="${id}"><span class="avatar ${item.provider === "Claude" ? "claude" : ""}">${initial(item)}</span><span class="member-info"><b>${escapeHtml(item.name)}</b><small>${badge ? `${badge} · ` : ""}${item.provider} · ${item.host}</small></span><span class="member-state">${stateLabels[statusFor(item)]}</span></button>`;
+      return `<button class="inspector-member" data-inspect-session="${id}" draggable="true" data-drag-member="${id}"><span class="avatar ${item.provider === "Claude" ? "claude" : ""}">${initial(item)}</span><span class="member-info"><b>${escapeHtml(item.name)}</b><small>${badge ? `${badge} · ` : ""}${item.provider} · ${item.host}</small></span><span class="member-state">${stateLabels[statusFor(item)]}</span></button>`;
     })
     .join("");
-  return `<div class="inspector-heading"><h2>Room overview</h2><span class="live-tag"><i class="live-dot"></i>Live</span></div><div class="inspector-title">${escapeHtml(current.name)}</div><p class="inspector-caption">${escapeHtml(modeLabel(current.mode))}</p><section class="inspector-section"><h3>Members <span class="muted">${current.members.length}</span></h3>${members || '<p class="inspector-caption">No members yet. Drag a session in from the left, or click “Add member”.</p>'}</section><section class="inspector-section"><h3>Auto-collaboration limits</h3>${meter("Discussion rounds", current.rounds, current.roundBudget, "Back-and-forth rounds between AIs; at the limit it stops and waits for you")}${meter("AI messages, last minute", current.autoMessages, current.messageBudget)}<div class="detail-row" title="Members working right now / limit. When full, AI-to-AI wake-ups wait; your messages don't"><span>Working at once</span><strong>${current.runningSeats} / ${current.maxConcurrent}</strong></div><div class="seat-row">${Array.from({ length: current.maxConcurrent }, (_, i) => `<i class="${i < current.runningSeats ? "on" : ""}"></i>`).join("")}</div>${meter("Wake-ups in this thread", current.traceWakeups, current.maxWakeups)}</section><div class="policy-card" style="margin-top:12px"><span>Room rules<b>v${current.revision}</b></span><p>${escapeHtml(excerpt)}</p><button data-open-rules="room">Edit rules</button></div><section class="inspector-section"><h3>Shared files <span class="muted">${artifacts.length}</span></h3>${artifacts.map((f) => artifactMarkup(f.latest, f.versions)).join("") || '<p class="inspector-caption">Files attached to messages are collected here.</p>'}</section>`;
+  return `<div class="inspector-heading"><h2>Room overview</h2><span class="live-tag"><i class="live-dot"></i>Live</span></div><div class="inspector-title-row"><div class="inspector-title">${escapeHtml(current.name)}</div><button class="text-button rename-room" data-rename-room title="Rename room (or double-click the title)">Rename</button></div><p class="inspector-caption">${escapeHtml(modeLabel(current.mode))}</p><section class="inspector-section"><h3>Members <span class="muted">${current.members.length}</span></h3>${members || '<p class="inspector-caption">No members yet. Drag a session in from the left, or click “Add member”.</p>'}</section><section class="inspector-section"><h3>Auto-collaboration limits</h3>${meter("Discussion rounds", current.rounds, current.roundBudget, "Back-and-forth rounds between AIs; at the limit it stops and waits for you")}${meter("AI messages, last minute", current.autoMessages, current.messageBudget)}<div class="detail-row" title="Members working right now / limit. When full, AI-to-AI wake-ups wait; your messages don't"><span>Working at once</span><strong>${current.runningSeats} / ${current.maxConcurrent}</strong></div><div class="seat-row">${Array.from({ length: current.maxConcurrent }, (_, i) => `<i class="${i < current.runningSeats ? "on" : ""}"></i>`).join("")}</div>${meter("Wake-ups in this thread", current.traceWakeups, current.maxWakeups)}</section><div class="policy-card" style="margin-top:12px"><span>Room rules<b>v${current.revision}</b></span><p>${escapeHtml(excerpt)}</p><button data-open-rules="room">Edit rules</button></div><section class="inspector-section"><h3>Shared files <span class="muted">${artifacts.length}</span></h3>${artifacts.map((f) => artifactMarkup(f.latest, f.versions)).join("") || '<p class="inspector-caption">Files attached to messages are collected here.</p>'}</section>`;
 }
 
 /** The proof ladder the user can trust: handed over → its own record shows it → it read it. Only proven rungs are lit. */
@@ -112,15 +112,15 @@ export function proofMarkup(item: VDelivery) {
 /** What the member is doing and how messages reach it, in one sentence. */
 function statusSentence(item: VSession, inRoom: boolean) {
   const status = statusFor(item);
-  const wakes = inRoom ? "new messages wake it automatically" : "this room's messages won't wake it; a direct message will";
+  const wakes = inRoom ? "New messages wake it automatically" : "This room's messages won't wake it; a direct message will";
   return (
     {
-      running: "Working. New messages arrive when it finishes",
-      idle: `Ready; ${wakes}`,
-      dormant: `Quiet for a while; ${wakes}`,
+      running: "New messages arrive when this turn finishes",
+      idle: wakes,
+      dormant: `Quiet for a while. ${wakes}`,
       waiting_human: "It stopped to wait for you. Reply to it directly",
-      disabled: "Receiving is off. Turn it on to deliver",
-      offline: "Offline. Messages wait until it is back",
+      disabled: "Turn on “Receive messages” to deliver again",
+      offline: "Messages wait until it is back",
       unknown: "Its status isn't visible right now",
     } as Record<string, string>
   )[status] ?? stateLabels[status];

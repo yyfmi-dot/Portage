@@ -1,4 +1,4 @@
-import { $, motionPreference, stationPositions, graphPositions, userGraphPosition, PACKET_MS, ui, model, room, speechEnd } from "./state.js";
+import { $, motionPreference, stationPosition, graphPositions, userGraphPosition, PACKET_MS, ui, model, room, speechEnd } from "./state.js";
 import { renderOffice } from "./office.js";
 import { renderGraph } from "./flow.js";
 
@@ -29,7 +29,7 @@ export function drawCanvas(canvas: HTMLCanvasElement, kind: "room" | "flow", now
   const positions = new Map<string, [number, number]>();
   positions.set("user", kind === "flow" ? [(rect.width * userGraphPosition[0]) / 100, (rect.height * userGraphPosition[1]) / 100] : [rect.width * 0.5, rect.height - 14]);
   current.members.forEach((id, index) => {
-    const percent = (kind === "flow" ? graphPositions : stationPositions)[index % 6]!;
+    const percent = kind === "flow" ? graphPositions[index % graphPositions.length]! : stationPosition(index, current.members.length);
     positions.set(id, [(rect.width * percent[0]) / 100, (rect.height * percent[1]) / 100 + (kind === "room" ? 35 : 0)]);
   });
   const edges = new Map<string, { from: string; to: string; kind: "dispatch" | "explicit" | "inferred" }>();
