@@ -1,4 +1,4 @@
-import { $, stateLabels, ui, model, session, room } from "./state.js";
+import { $, stateLabels, ui, model, session, room, type VSession } from "./state.js";
 import { escapeHtml, statusFor, queueFor, plural, setHtml, sinceLabel } from "./format.js";
 import { renderOffice } from "./office.js";
 import { hostLabel } from "./model.js";
@@ -8,9 +8,17 @@ import { renderActivity, renderGraph } from "./flow.js";
 import { renderMemberOptions } from "./dialogs.js";
 import { wakeCanvas } from "./canvas.js";
 
+/** @-mention token shown in the header; always the real stored alias. */
+function mentionAlias(target: VSession) {
+  return target.alias;
+}
+
 export function render() {
   if (!ui.model) return;
-  $("offline").hidden = true;
+  const offline = $("offline");
+  offline.hidden = true;
+  offline.setAttribute("aria-hidden", "true");
+  offline.toggleAttribute("inert", true);
   renderConnection();
   renderSidebar();
   renderHeader();
@@ -37,39 +45,46 @@ export function renderConnection() {
   }
 }
 
-export function renderSidebar() {
-  $("roomList").innerHTML = model()
-    .rooms.map(
-      (item) =>
-        `<button class="room-nav ${ui.selection.kind === "room" && item.id === ui.roomId ? "active" : ""}" data-room="${item.id}" data-drop-room="${item.id}"><span class="room-symbol">${escapeHtml([...item.name][0] ?? "R")}</span><span>${escapeHtml(item.name)}</span><small>${item.paused ? "Paused" : item.members.length}</small></button>`,
-    )
-    .join("");
-  const query = ($("sessionSearch") as HTMLInputElement).value.trim().toLowerCase();
-  const providers = [...new Set(["Codex", "Claude", ...model().sessions.map((x) => x.provider)])];
-  $("sessionTree").innerHTML = providers
+function sessionRow(item: VSession) {
+  const count = queueFor(item.id).length;
+  return `<button draggable="true" data-session="${item.id}" class="session-row ${ui.selection.kind === "session" && ui.selection.id === item.id ? "active" : ""} ${item.enabled ? "" : "is-disabled"} ${item.demo ? "is-demo" : ""}" title="${escapeHtml(item.name)} · ${stateLabels[statusFor(item)]} · ${escapeHtml(item.nativeIdentity)}${item.demo ? " · studio demo" : ""}"><span class="session-dot ${statusFor(item)}"></span><span class="session-name">${escapeHtml(item.name)}${item.demo ? `<small class="demo-tag">Demo</small>` : ""}</span>${count ? `<span class="queue-count">${count}</span>` : ""}</button>`;
+}
+
+function providerTree(items: VSession[]) {
+  const providers = [...new Set(["Codex", "Claude", ...items.map((x) => x.provider)])];
+  return providers
     .map((provider) => {
-      const items = model().sessions.filter(
-        (item) =>
-          item.provider === provider &&
-          `${item.name} ${item.host} ${item.alias} ${item.nativeIdentity}`.toLowerCase().includes(query),
-      );
-      if (!items.length) return "";
-      const hosts = [...new Set([...["app", "vscode_cli", "terminal", "headless"].map(hostLabel), ...items.map((x) => x.host)])];
-      const groups = hosts
+      const group = items.filter((item) => item.provider === provider);
+      if (!group.length) return "";
+      const hosts = [...new Set([...["app", "vscode_cli", "terminal", "headless"].map(hostLabel), ...group.map((x) => x.host)])];
+      const blocks = hosts
         .map((host) => {
-          const members = items.filter((item) => item.host === host);
+          const members = group.filter((item) => item.host === host);
           if (!members.length) return "";
-          return `<div class="source-group"><div class="source-label">${host}</div>${members
-            .map((item) => {
-              const count = queueFor(item.id).length;
-              return `<button draggable="true" data-session="${item.id}" class="session-row ${ui.selection.kind === "session" && ui.selection.id === item.id ? "active" : ""} ${item.enabled ? "" : "is-disabled"}" title="${escapeHtml(item.name)} · ${stateLabels[statusFor(item)]} · ${escapeHtml(item.nativeIdentity)}"><span class="session-dot ${statusFor(item)}"></span><span class="session-name">${escapeHtml(item.name)}</span>${count ? `<span class="queue-count">${count}</span>` : ""}</button>`;
-            })
-            .join("")}</div>`;
+          return `<div class="source-group"><div class="source-label">${host}</div>${members.map(sessionRow).join("")}</div>`;
         })
         .join("");
-      return `<div class="provider-title ${provider.toLowerCase()}"><span class="provider-logo">${provider === "Codex" ? "C›" : "✳"}</span>${escapeHtml(provider)}</div>${groups}`;
+      return `<div class="provider-title ${provider.toLowerCase()}"><span class="provider-logo">${provider === "Codex" ? "C›" : "✳"}</span>${escapeHtml(provider)}</div>${blocks}`;
     })
     .join("");
+}
+
+export function renderSidebar() {
+  $("roomList").innerHTML = model()
+    .rooms.map((item) => {
+      const demoOnly = item.members.length > 0 && item.members.every((id) => session(id)?.demo);
+      return `<button class="room-nav ${ui.selection.kind === "room" && item.id === ui.roomId ? "active" : ""}" data-room="${item.id}" data-drop-room="${item.id}"><span class="room-symbol">${escapeHtml([...item.name][0] ?? "R")}</span><span>${escapeHtml(item.name)}${demoOnly ? `<small class="demo-tag">Demo</small>` : ""}</span><small>${item.paused ? "Paused" : item.members.length}</small></button>`;
+    })
+    .join("");
+  const query = ($("sessionSearch") as HTMLInputElement).value.trim().toLowerCase();
+  const matches = (item: VSession) =>
+    `${item.name} ${item.host} ${item.alias} ${item.nativeIdentity}`.toLowerCase().includes(query);
+  const live = model().sessions.filter((item) => !item.demo && matches(item));
+  const demos = model().sessions.filter((item) => item.demo && matches(item));
+  const demoBlock = demos.length
+    ? `<details class="demo-sessions" ${query || demos.some((d) => ui.selection.kind === "session" && ui.selection.id === d.id) ? "open" : ""}><summary><span>Studio demo</span><small>${demos.length}</small></summary><div class="demo-session-list">${providerTree(demos)}</div></details>`
+    : "";
+  $("sessionTree").innerHTML = `${providerTree(live)}${demoBlock}`;
   renderArchived(query);
 }
 
@@ -99,9 +114,13 @@ export function renderHeader() {
   $("roomEyebrow").textContent = target ? `${target.provider} · ${target.host}` : "Room";
   $("viewTitle").textContent = target?.name ?? current.name;
   $("viewSubtitle").textContent = target
-    ? `${target.writable ? "Message it directly" : "Read-only: you can view its record"} · call it with @${target.alias} in a room`
-    : "Sessions from different tools, working in one room.";
-  $("viewSubtitle").title = $("viewSubtitle").textContent ?? "";
+    ? `${target.demo ? "Studio demo · file inbox" : target.writable ? "Message it directly" : "Read-only: you can view its record"} · in a room, @${mentionAlias(target)}`
+    : current.members.length && current.members.every((id) => session(id)?.demo)
+      ? "Studio demo room — add real Codex or Claude sessions when you are ready."
+      : "Sessions from different tools, working in one room.";
+  $("viewSubtitle").title = target
+    ? `${$("viewSubtitle").textContent ?? ""} · alias @${target.alias}`
+    : ($("viewSubtitle").textContent ?? "");
   $("roomRulesLabel").textContent = `Room rules v${current.revision}`;
   $("addMember").hidden = direct;
   $("roomRules").hidden = direct;

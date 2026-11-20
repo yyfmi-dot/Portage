@@ -168,6 +168,8 @@ export function createRuntime(options: RuntimeOptions = {}): DaemonRuntime {
   for (const [id, state] of bus.runtime) {
     if (state.execution === "running" || state.detail?.startsWith("Portage restarted")) bus.setSessionExecution(id, "idle");
   }
+  // Pre-hold-era Failed rows for Codex writer conflicts become cancelled(attached), not a graveyard.
+  if (bus.healWriterBusyFailures() > 0) persist();
   return runtime;
 }
 
@@ -182,16 +184,34 @@ async function finishTurn(runtime: DaemonRuntime, end: TurnEnd) {
   }
 }
 
+/** Studio demo identities (file inbox). Used only for the in-app animation / `portage demo`. */
+export function isStudioDemoSession(nativeIdentity: string) {
+  return nativeIdentity.startsWith("demo-");
+}
+
 /**
  * Seed the demo room: three demo identities over the file inbox, clearly not real sessions.
- * Real sessions join through discovery + registration.
+ * Opt-in only — production `serve` stays real-sessions-only.
  */
 export async function seedDemoRoom(runtime: DaemonRuntime) {
   const { bus } = runtime;
   if (!bus.getPolicyDocument("global", "PORTAGE")) {
     bus.publishPolicy({ scope: "global", id: "PORTAGE", markdown: DEFAULT_GLOBAL_POLICY, updatedBy: "system" });
   }
-  if (bus.conversations.has("room_dev")) return;
+  // Re-activate if a previous serve archived them.
+  for (const session of bus.sessions.values()) {
+    if (!isStudioDemoSession(session.nativeIdentity) || !session.archivedAt) continue;
+    bus.updateSession({ sessionId: session.id, archived: false });
+  }
+  if (bus.conversations.has("room_dev")) {
+    for (const alias of ["lead", "builder", "reviewer"]) {
+      const pid = `p_${alias}`;
+      if (!bus.participants.has(pid)) continue;
+      const active = bus.memberships.some((m) => m.conversationId === "room_dev" && m.participantId === pid && !m.leftAt);
+      if (!active) await bus.joinRoom({ conversationId: "room_dev", participantId: pid });
+    }
+    return;
+  }
 
   const demo = (id: string, provider: string, host: string, name: string, alias: string) =>
     bus.registerSession({
@@ -219,6 +239,17 @@ export async function seedDemoRoom(runtime: DaemonRuntime) {
     coordinatorParticipantId: "p_lead",
   });
   for (const alias of ["lead", "builder", "reviewer"]) await bus.joinRoom({ conversationId: "room_dev", participantId: `p_${alias}` });
+}
+
+/** Archive seeded studio identities so the UI defaults to real Codex/Claude sessions. */
+export function retireStudioDemo(runtime: DaemonRuntime) {
+  let n = 0;
+  for (const session of runtime.bus.sessions.values()) {
+    if (!isStudioDemoSession(session.nativeIdentity) || session.archivedAt) continue;
+    runtime.bus.updateSession({ sessionId: session.id, archived: true });
+    n += 1;
+  }
+  return n;
 }
 
 /** Messages per conversation the UI starts with; older ones are paged in on demand. */

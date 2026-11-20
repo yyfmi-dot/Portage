@@ -3,7 +3,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { TUNABLE_BUDGETS, policyDocumentBody, type BusEvent, type Message, type Session } from "@portage/core";
-import { createRuntime, historyPage, seedDemoRoom, snapshotForUi, type DaemonRuntime, type RuntimeOptions } from "./runtime.js";
+import {
+  createRuntime,
+  historyPage,
+  retireStudioDemo,
+  seedDemoRoom,
+  snapshotForUi,
+  type DaemonRuntime,
+  type RuntimeOptions,
+} from "./runtime.js";
 
 const DEFAULT_PORT = 8787;
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
@@ -46,7 +54,10 @@ function route(method: string, path: string, handler: Handler, mutates = method 
 }
 
 route("GET", "/api/health", () => ({ ok: true, service: "portage-daemon" }));
-route("GET", "/api/snapshot", ({ runtime }) => snapshotForUi(runtime.bus));
+route("GET", "/api/snapshot", ({ runtime }) => {
+  healSessionAliases(runtime);
+  return snapshotForUi(runtime.bus);
+});
 route("GET", "/api/discover", async ({ runtime }) => {
   const endpoints = await runtime.refreshDiscovery();
   const bound = new Set([...runtime.bus.sessions.values()].map((s) => `${s.provider}:${s.nativeIdentity}`));
@@ -65,7 +76,10 @@ route("POST", "/api/sessions", async ({ runtime, body }) => {
   if (existing) throw new HttpError(409, "session already registered");
   const adapterId = body.adapterId ? knownAdapter(runtime, String(body.adapterId)) : undefined;
   const id = `s_${provider}_${nativeIdentity.replace(/[^\w-]/g, "")}`.slice(0, 48);
-  const alias = uniqueAlias(runtime, String(body.alias ?? nativeIdentity).replace(/[^\w-]/g, "").slice(0, 24) || "session");
+  const alias = uniqueAlias(
+    runtime,
+    slugAlias(String(body.alias || body.displayName || nativeIdentity)) || "session",
+  );
   const { session } = runtime.bus.registerSession({
     session: {
       id,
@@ -140,6 +154,13 @@ route("POST", "/api/sessions/:id/direct", ({ runtime, params }) =>
 );
 
 // rooms
+/** Opt-in studio cast for the in-app delivery animation — not loaded on ordinary serve. */
+route("POST", "/api/studio-demo/ensure", async ({ runtime }) => {
+  await seedDemoRoom(runtime);
+  runtime.persist();
+  return { ok: true, roomId: "room_dev" };
+});
+
 route("POST", "/api/rooms", ({ runtime, body }) => {
   const title = requireString(body.title, "title");
   const id = `room_${Date.now().toString(36)}`;
@@ -511,9 +532,14 @@ route("POST", "/api/agent/:session/status", async ({ runtime, params, body }) =>
   return { deliveries, execution };
 });
 
-export async function startServer(port = DEFAULT_PORT, options: Pick<RuntimeOptions, "native"> = {}) {
+export async function startServer(
+  port = DEFAULT_PORT,
+  options: Pick<RuntimeOptions, "native"> & { seedDemo?: boolean } = {},
+) {
   const runtime = createRuntime({ hydrate: true, daemonUrl: `http://127.0.0.1:${port}`, ...options });
-  await seedDemoRoom(runtime);
+  const wantDemo = options.seedDemo === true || process.env.PORTAGE_SEED_DEMO === "1";
+  if (wantDemo) await seedDemoRoom(runtime);
+  else retireStudioDemo(runtime);
   runtime.persist();
 
   const server = createServer((req, res) => {
@@ -621,6 +647,41 @@ function uniqueAlias(runtime: DaemonRuntime, base: string) {
   const taken = new Set([...runtime.bus.sessions.values()].map((s) => s.alias));
   if (!taken.has(base)) return base;
   for (let i = 2; ; i += 1) if (!taken.has(`${base}${i}`)) return `${base}${i}`;
+}
+
+/** Prefer a short human slug from the title; fall back to a compact native id, never a truncated UUID with a dangling dash. */
+function slugAlias(raw: string) {
+  // Alias must match MemoryBus `/^[\w-]{1,32}$/` — ASCII word chars only.
+  const fromTitle = raw
+    .normalize("NFKD")
+    .replace(/[^\w\s-]+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 24)
+    .replace(/-+$/g, "");
+  if (fromTitle && !/^[0-9a-f-]{8,}$/i.test(fromTitle)) return fromTitle;
+  const id = raw.replace(/[^\w-]/g, "");
+  return id.replace(/-/g, "").slice(0, 12) || "session";
+}
+
+function looksLikeRawIdAlias(alias: string) {
+  return /-$/.test(alias) || /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(alias) || /^[0-9a-f]{12,}$/i.test(alias);
+}
+
+/** One-shot repair for sessions registered before slugAlias (truncated UUID aliases). */
+function healSessionAliases(runtime: DaemonRuntime) {
+  for (const session of runtime.bus.sessions.values()) {
+    if (session.archivedAt || !looksLikeRawIdAlias(session.alias)) continue;
+    const next = uniqueAlias(runtime, slugAlias(session.displayName || session.nativeIdentity));
+    if (next === session.alias) continue;
+    try {
+      runtime.bus.updateSession({ sessionId: session.id, alias: next });
+    } catch {
+      /* keep current alias if rename races */
+    }
+  }
 }
 
 function requireString(value: unknown, name: string): string {

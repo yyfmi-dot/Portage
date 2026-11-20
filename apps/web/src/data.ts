@@ -48,8 +48,13 @@ export async function refresh() {
         }
       ui.speaking.set(message.sender, { text: message.text, startAt, until: startAt + SPEECH_MS, roomId: message.conversationId });
     }
-    if (!ui.model.rooms.some((r) => r.id === ui.roomId) && ui.model.rooms[0]) ui.roomId = ui.model.rooms[0].id;
+    if (!ui.model.rooms.some((r) => r.id === ui.roomId)) {
+      const preferred =
+        ui.model.rooms.find((r) => r.members.some((id) => !session(id)?.demo)) ?? ui.model.rooms[0];
+      if (preferred) ui.roomId = preferred.id;
+    }
     if (ui.selection.kind === "session" && !session(ui.selection.id)) ui.selection = { kind: "room", id: ui.roomId };
+    else if (ui.selection.kind === "room" && ui.selection.id !== ui.roomId) ui.selection = { kind: "room", id: ui.roomId };
     render();
   } catch (error) {
     setOffline(error instanceof Error ? error.message : String(error));
@@ -65,7 +70,10 @@ export function setOffline(detail: string) {
   ui.connected = false;
   ui.closeStream?.();
   ui.closeStream = null;
-  $("offline").hidden = false;
+  const offline = $("offline");
+  offline.hidden = false;
+  offline.setAttribute("aria-hidden", "false");
+  offline.toggleAttribute("inert", false);
   $("offlineDetail").textContent = `${detail} · retrying every 2 seconds`;
   renderConnection();
   clearTimeout(retryTimer);

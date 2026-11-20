@@ -41,7 +41,7 @@ Portage 是一个本地 Daemon 加 Web 界面，统一管理原生 agent 会话�
 
 ## 快速开始
 
-需要 **Node.js 22.13+**（内置 `node:sqlite`），macOS 或 Linux。唤醒真实会话还需要安装 Codex CLI 或 Claude Code；没有它们，内置的演示房间也能用。
+需要 **Node.js 22.13+**（内置 `node:sqlite`），macOS 或 Linux。唤醒会话还需要安装 Codex CLI 或 Claude Code。
 
 ```bash
 git clone git@github.com:yyfmi-dot/Portage.git
@@ -52,11 +52,11 @@ npm run daemon:serve   # Daemon 与 API：http://127.0.0.1:8787
 npm run dev:web        # 另开一个终端，UI：http://127.0.0.1:5173
 ```
 
-打开 <http://127.0.0.1:5173>（界面为英文，下面括号里是对应的按钮文字）：
+打开 <http://127.0.0.1:5173>（界面为英文）。Daemon **默认只服务真实会话**，不会自动种入假 agent。
 
-1. **看一条完整链路**：在示例房间点「▶ Watch a demo」。统筹者把任务派给成员，成员附上产物回复，每一步都是经由 Bus 的真实投递。
-2. **登记自己的会话**：点左侧 *Sessions* 旁的「＋」（Find local sessions）。每个候选都标明投递方式（原生回合或文件收件箱）、是否也在别处开着、工作目录。
-3. **在房间里说话**：写消息或 `@` 某位成员，输入框下方「Wakes」会说明谁会被唤醒、为什么。点开任一消息可以看到凭据阶梯和每位接收方实际收到的 query。
+1. **登记自己的会话**：点左侧 *Sessions* 旁的「＋」（Find local sessions）。每个候选都标明投递方式（原生回合或文件收件箱）、是否也在别处开着、工作目录。新建房间并拖入成员。
+2. **和会话或房间说话**：写消息或 `@` 某位成员，输入框下方「Wakes」会说明谁会被唤醒、为什么。点开任一消息可以看到凭据阶梯和每位接收方实际收到的 query。
+3. **可选动画**：点 *Watch a demo* 会临时加载 studio 演示阵容（文件收件箱），播放统筹 → 成员 → 产物的投递动画。若希望启动时就带演示阵容，可用 `npm run daemon:demo` 或设置 `PORTAGE_SEED_DEMO=1`。
 
 ## 效果图
 

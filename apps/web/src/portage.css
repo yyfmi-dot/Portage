@@ -655,3 +655,119 @@ button.board-item:hover b {
 .workstation[draggable="true"]:active {
   cursor: grabbing;
 }
+
+/* Narrow screens: drawer chrome. Base hidden; ≤900px shows toggle (must live here so it wins over cascade). */
+.nav-toggle,
+.nav-close,
+.nav-scrim {
+  display: none;
+}
+.nav-toggle,
+.nav-close {
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 16px;
+  cursor: pointer;
+}
+.nav-close {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+}
+@media (max-width: 900px) {
+  .nav-toggle {
+    display: inline-flex;
+  }
+  .nav-close {
+    display: inline-flex;
+  }
+}
+
+.demo-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #efe6da;
+  color: #8a6a4a;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+.session-row.is-demo .session-name {
+  opacity: 0.92;
+}
+.demo-sessions {
+  margin: 10px 4px 16px;
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
+}
+.demo-sessions > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 6px;
+}
+.demo-sessions > summary::-webkit-details-marker {
+  display: none;
+}
+.demo-sessions > summary small {
+  margin-left: auto;
+  opacity: 0.8;
+}
+.demo-session-list {
+  margin-top: 4px;
+}
+
+.stale-writer-banner {
+  margin: 8px 18px 14px;
+  padding: 10px 12px;
+  border: 1px solid #ead9cb;
+  border-radius: 12px;
+  background: #fbf6f1;
+  color: #6e5644;
+  font-size: 13px;
+}
+.stale-writer-banner summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.stale-writer-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.stale-writer-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+.stale-writer-row time {
+  color: var(--muted);
+}
+.rcpt-resend {
+  margin-left: 6px;
+  border: 0;
+  background: transparent;
+  color: #a4643b;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+}

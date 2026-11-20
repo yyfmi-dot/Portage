@@ -12,7 +12,7 @@ import { renderChat, renderComposer, renderWakePreview, renderMentionMenu, inser
 import { renderInspector } from "./inspector.js";
 import { renderGraph } from "./flow.js";
 import { bindCanvas, wakeCanvas } from "./canvas.js";
-import { selectRoom, selectSession, sendFromComposer, previewQuery, demoCollaboration, renameRoom } from "./actions.js";
+import { selectRoom, selectSession, sendFromComposer, previewQuery, demoCollaboration, renameRoom, resendMessage } from "./actions.js";
 import { showArtifact, showSnapshot, BUDGET_INPUTS, showRules, validateRules, insertFrontmatter, publishRules, renderMemberOptions, showDiscover, renderDiscover, showNameDialog } from "./dialogs.js";
 import { bindPalette, openPalette } from "./palette.js";
 
@@ -125,7 +125,8 @@ document.addEventListener("click", (event) => {
       (text) => act(() => api.revise(message.id, text), "Edit saved"),
       4000,
     );
-  } else if (data.hideMessage) {
+  }   else if (data.resendMessage) void resendMessage(data.resendMessage);
+  else if (data.hideMessage) {
     ui.hidden.add(data.hideMessage);
     localStorage.setItem("portage.hidden", JSON.stringify([...ui.hidden]));
     renderChat();
@@ -188,6 +189,20 @@ document.addEventListener("click", (event) => {
 ($("sessionSearch") as HTMLInputElement).addEventListener("input", renderSidebar);
 $("workspaceButton").addEventListener("click", () => toast("Personal workspace · data lives in ~/.portage on this computer"));
 $("showInspector").addEventListener("click", () => $("inspector").classList.toggle("open"));
+
+function setNavOpen(open: boolean) {
+  $("appShell").classList.toggle("nav-open", open);
+  $("navToggle").setAttribute("aria-expanded", String(open));
+  $("navScrim").hidden = !open;
+}
+$("navToggle").addEventListener("click", () => setNavOpen(!$("appShell").classList.contains("nav-open")));
+$("navClose").addEventListener("click", () => setNavOpen(false));
+$("navScrim").addEventListener("click", () => setNavOpen(false));
+document.addEventListener("click", (event) => {
+  if (!$("appShell").classList.contains("nav-open")) return;
+  const target = event.target as HTMLElement;
+  if (target.closest("[data-room],[data-session]")) setNavOpen(false);
+});
 $("viewAllMessages").addEventListener("click", () => {
   ui.view = "chat";
   render();

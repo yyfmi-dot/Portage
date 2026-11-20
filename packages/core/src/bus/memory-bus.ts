@@ -1,5 +1,5 @@
 import { compileContext, fnv1a, markedMessageIds, type ContextSnapshot } from "../context.js";
-import { applyDeliveryTransition, shouldHoldForConditions, type DeliveryTransition } from "../delivery.js";
+import { applyDeliveryTransition, isWriterBusyFailure, shouldHoldForConditions, type DeliveryTransition } from "../delivery.js";
 import { acceptMessage } from "../messaging.js";
 import type { PortageBusApi } from "../api.js";
 import type { NativeReadResult, Readiness, VerifyResult } from "../adapter.js";
@@ -565,6 +565,27 @@ export class MemoryBus implements PortageBusApi {
     if (!this.transition(delivery, { type: "cancel", reason: "cancelled_by_user" }))
       throw new Error(`delivery is ${delivery.state}; only queued or held deliveries can be cancelled`);
     return structuredClone(delivery);
+  }
+
+  /**
+   * Historical Failed rows from before writer-busy was Held. Dismiss them as cancelled(attached)
+   * so the timeline stops looking like a permanent graveyard; do not re-queue (would re-send).
+   */
+  healWriterBusyFailures(): number {
+    let healed = 0;
+    for (const delivery of this.deliveries) {
+      if (delivery.state !== "failed") continue;
+      if (!isWriterBusyFailure(delivery.reason) && !isWriterBusyFailure(delivery.detail)) continue;
+      if (
+        this.transition(delivery, {
+          type: "cancel",
+          reason: "attached",
+          detail: "earlier attempt while another client held the writer",
+        })
+      )
+        healed += 1;
+    }
+    return healed;
   }
 
   /**
@@ -1640,8 +1661,11 @@ export class MemoryBus implements PortageBusApi {
       try {
         result = await this.injectHook({ session, message, delivery, compiledQuery: snapshot.query, snapshot });
       } catch (error) {
-        // The adapter failed mid-submit; the text may or may not have reached the native side.
-        result = { ok: false, uncertain: true, error: error instanceof Error ? error.message : String(error) };
+        const text = error instanceof Error ? error.message : String(error);
+        // Writer lock mid-flight is not "uncertain" — design holds and retries.
+        result = isWriterBusyFailure(text)
+          ? { ok: false, hold: "attached", detail: text, error: text }
+          : { ok: false, uncertain: true, error: text };
       }
       if (result.ok) {
         if (result.running) this.setSessionExecution(session.id, "running");
@@ -1650,14 +1674,19 @@ export class MemoryBus implements PortageBusApi {
           proof: result.proof ?? "submitted",
           nativeMessageId: result.nativeMessageId,
         });
+      } else if (result.hold || isWriterBusyFailure(result.error) || isWriterBusyFailure(result.detail)) {
+        this.transition(delivery, {
+          type: "hold",
+          reason: result.hold ?? "attached",
+          detail: result.detail ?? result.error,
+        });
       } else if (result.uncertain) {
         this.transition(delivery, { type: "uncertain" });
-      } else if (result.hold) {
-        this.transition(delivery, { type: "hold", reason: result.hold, detail: result.detail ?? result.error });
       } else if (result.retryable) {
         this.transition(delivery, { type: "retry" });
       } else {
-        this.transition(delivery, { type: "fail", reason: result.error });
+        // Keep HoldReason clean; put the adapter error in detail for the UI.
+        this.transition(delivery, { type: "fail", detail: result.error });
       }
     } finally {
       this.inputLocks.delete(session.id);

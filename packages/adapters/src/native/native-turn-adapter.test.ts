@@ -332,6 +332,18 @@ describe.skipIf(!posix)("NativeTurnAdapter · a turn", () => {
   });
 });
 
+describe("cleanHostMarkup", () => {
+  it("strips citation and rollout chrome while keeping the human reply", async () => {
+    const { cleanHostMarkup } = await import("./transcripts.js");
+    const raw =
+      "切到了。\n<oai-mem-citation>note</oai-mem-citation>\n<rollout_ids>01a1e7fc</rollout_ids>\n继续。";
+    expect(cleanHostMarkup(raw)).toBe("切到了。\n继续。");
+    expect(cleanHostMarkup('<external_codex_apps_open_page>{"page_id":null}</external_codex_apps_open_page>\n切换了么')).toBe(
+      "切换了么",
+    );
+  });
+});
+
 describe("claudeDialect", () => {
   it("keeps typed input and replies, drops sidechains/meta/slash-command plumbing, and surfaces API errors as failed turns", async () => {
     const root = mkdtempSync(join(tmpdir(), "portage-claude-"));

@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { $, deliveryStateLabels, ui, session, room } from "./state.js";
+import { $, deliveryStateLabels, ui, session, room, model } from "./state.js";
 import { toast, senderName, queueFor, plural } from "./format.js";
 import { act, refresh } from "./data.js";
 import { render } from "./render.js";
@@ -46,6 +46,16 @@ export async function uploadAttachment(conversationId: string) {
     conversationId,
   });
   return [artifact.id];
+}
+
+/** Re-send a prior user message body (used after writer-busy dismissals). Fresh delivery, same words. */
+export async function resendMessage(messageId: string) {
+  const message = model().messages.find((m) => m.id === messageId);
+  if (!message || message.sender !== "user") return toast("Nothing to retry");
+  const input = $("messageInput") as HTMLTextAreaElement;
+  input.value = message.text;
+  input.focus();
+  await sendFromComposer();
 }
 
 export async function sendFromComposer() {
@@ -113,7 +123,15 @@ export async function previewQuery() {
 export const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function demoCollaboration() {
+  // Studio cast is opt-in: load demo identities for the animation, then run real bus deliveries.
+  await act(async () => {
+    const ensured = await api.ensureStudioDemo();
+    ui.roomId = ensured.roomId;
+    ui.selection = { kind: "room", id: ensured.roomId };
+    ui.view = "room";
+  });
   const current = room();
+  if (!current) return toast("Studio demo room could not be loaded");
   if (current.paused) return toast("The room is paused; resume auto-messaging first");
   if (current.mode === "coordinator" && !current.coordinator) return toast("Coordinator mode needs a lead");
   const lead = session(current.coordinator ?? current.members[0] ?? "");
@@ -121,7 +139,7 @@ export async function demoCollaboration() {
   if (!lead?.enabled || !worker) return toast("Turn on receiving for the lead and at least one writable member");
   ui.demoRunning = true;
   renderOffice();
-  toast("Demo started: every step is a real delivery");
+  toast("Demo started: every step is a real delivery through the studio cast");
   const stamp = Date.now().toString(36);
   try {
     const start = await api.send(current.id, {

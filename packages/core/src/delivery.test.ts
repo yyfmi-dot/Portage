@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyDeliveryTransition,
+  isWriterBusyFailure,
   nextAutoRound,
   shouldHoldForConditions,
 } from "./delivery.js";
@@ -65,6 +66,32 @@ describe("applyDeliveryTransition", () => {
   it("left_room cancel path from queued", () => {
     const r = applyDeliveryTransition(delivery(), { type: "cancel" });
     expect(r.ok && r.delivery.state).toBe("cancelled");
+  });
+
+  it("failed writer-busy rows can be dismissed to cancelled, not re-queued", () => {
+    const failed = applyDeliveryTransition(delivery("dispatching"), {
+      type: "fail",
+      detail: "Error: thread/resume failed: thread x already has an active writer",
+    });
+    expect(failed).toMatchObject({ ok: true, delivery: { state: "failed" } });
+    const d = (failed as { ok: true; delivery: Delivery }).delivery;
+    const dismissed = applyDeliveryTransition(d, {
+      type: "cancel",
+      reason: "attached",
+      detail: "earlier attempt while another client held the writer",
+    });
+    expect(dismissed).toMatchObject({
+      ok: true,
+      delivery: { state: "cancelled", reason: "attached" },
+    });
+    expect(applyDeliveryTransition(d, { type: "retry" }).ok).toBe(false);
+  });
+});
+
+describe("isWriterBusyFailure", () => {
+  it("recognizes Codex active-writer errors and ignores unrelated failures", () => {
+    expect(isWriterBusyFailure("thread already has an active writer (code -32600)")).toBe(true);
+    expect(isWriterBusyFailure("no rollout found for thread id t7")).toBe(false);
   });
 });
 

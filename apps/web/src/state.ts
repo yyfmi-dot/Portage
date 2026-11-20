@@ -102,6 +102,8 @@ export type VSession = {
   adapterId?: string;
   workdir?: string;
   bindingEpoch: number;
+  /** Seeded Studio identities (file inbox), not a real Codex/Claude session. */
+  demo: boolean;
   /** What the host last said about the execution state, e.g. why a native turn failed. */
   detail?: string;
   checkpoint?: NativeSyncCheckpoint;
@@ -200,8 +202,8 @@ export const ui = {
   connected: false,
   streamOpen: false,
   view: "room" as "room" | "chat" | "flow",
-  selection: { kind: "room", id: "room_dev" } as { kind: "room" | "session"; id: string },
-  roomId: "room_dev",
+  selection: { kind: "room", id: "" } as { kind: "room" | "session"; id: string },
+  roomId: "",
   inspector: null as null | { kind: "session" | "message"; id: string },
   traceFilter: "all",
   packets: [] as Packet[],

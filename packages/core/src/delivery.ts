@@ -5,21 +5,27 @@ export type DeliveryTransition =
   | { type: "release" }
   | { type: "lease" }
   | { type: "submitted" }
-  | { type: "fail"; reason?: HoldReason }
+  | { type: "fail"; reason?: HoldReason; detail?: string }
   | { type: "uncertain" }
   | { type: "confirm" }
   | { type: "retry" }
-  | { type: "cancel"; reason?: HoldReason };
+  | { type: "cancel"; reason?: HoldReason; detail?: string };
 
 const ALLOWED: Record<DeliveryState, DeliveryTransition["type"][]> = {
   queued: ["hold", "lease", "cancel"],
   held: ["release", "cancel"],
   dispatching: ["submitted", "fail", "uncertain", "retry", "hold"],
   submitted: [],
-  failed: [],
+  // Dismiss / heal only — never re-queue a failed delivery (that would re-send).
+  failed: ["cancel"],
   uncertain: ["confirm", "retry", "fail"],
   cancelled: [],
 };
+
+/** Codex (and similar) refuse a second writer; design: Held/queue, never Failed. */
+export function isWriterBusyFailure(text?: string | null) {
+  return Boolean(text && /active writer|already has an active writer/i.test(text));
+}
 
 export function canTransition(state: DeliveryState, type: DeliveryTransition["type"]): boolean {
   return ALLOWED[state].includes(type);
@@ -66,6 +72,7 @@ export function applyDeliveryTransition(
     case "fail":
       next.state = "failed";
       next.reason = transition.reason;
+      if (transition.detail) next.detail = transition.detail;
       break;
     case "uncertain":
       next.state = "uncertain";
@@ -81,6 +88,7 @@ export function applyDeliveryTransition(
     case "cancel":
       next.state = "cancelled";
       next.reason = transition.reason ?? next.reason;
+      if (transition.detail) next.detail = transition.detail;
       break;
   }
 

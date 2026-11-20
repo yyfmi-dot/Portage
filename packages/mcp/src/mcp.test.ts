@@ -59,7 +59,7 @@ describe("MCP bridge over stdio (real MCP client â†’ real portage-mcp process â†
   beforeAll(async () => {
     home = mkdtempSync(join(tmpdir(), "portage-mcp-"));
     process.env.PORTAGE_HOME = home;
-    started = await startServer(PORT);
+    started = await startServer(PORT, { seedDemo: true });
   });
 
   afterAll(async () => {

@@ -1,5 +1,5 @@
-import { $, graphPositions, userGraphPosition, stateLabels, reasonShort, deliveryStateLabels, type VSession, ui, model, session, room } from "./state.js";
-import { escapeHtml, memberBadge, senderName, statusFor, timeLabel, modeLabel, waitMarkup, plural } from "./format.js";
+import { $, graphPositions, userGraphPosition, stateLabels, type VSession, ui, model, session, room } from "./state.js";
+import { escapeHtml, memberBadge, senderName, statusFor, timeLabel, modeLabel, waitMarkup, plural, deliveryChipLabel } from "./format.js";
 
 export function roomEvents(roomId: string) {
   const current = room(roomId);
@@ -72,7 +72,7 @@ export function renderGraph() {
       ? open
           .map((d) => {
             const message = model().messages.find((m) => m.id === d.messageId);
-            return `<button class="board-item ${d.state}" data-message="${d.messageId}"><b>${escapeHtml(senderName(d.recipient))} · ${deliveryStateLabels[d.state] ?? d.state}${d.reason ? `<span class="reason-chip">${escapeHtml(reasonShort[d.reason] ?? d.reason)}</span>` : ""}</b><small>${escapeHtml(message?.text.slice(0, 80) ?? d.messageId)}<br>${waitMarkup(d)}</small></button>`;
+            return `<button class="board-item ${d.state}" data-message="${d.messageId}"><b>${escapeHtml(senderName(d.recipient))} · ${escapeHtml(deliveryChipLabel(d))}</b><small>${escapeHtml(message?.text.slice(0, 80) ?? d.messageId)}<br>${waitMarkup(d)}</small></button>`;
           })
           .join("")
       : '<p class="board-note">Every inbox is clear.</p>'

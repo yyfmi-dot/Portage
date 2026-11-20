@@ -2711,10 +2711,43 @@ h1 {
   }
 }
 @media (max-width: 900px) {
+  .nav-toggle {
+    display: inline-flex;
+  }
   .sidebar {
-    width: 170px;
-    padding-left: 8px;
-    padding-right: 8px;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 40;
+    width: min(288px, 86vw);
+    padding-left: 12px;
+    padding-right: 12px;
+    transform: translateX(-105%);
+    transition: transform 0.22s ease;
+    box-shadow: none;
+  }
+  .app-shell.nav-open .sidebar {
+    transform: translateX(0);
+  }
+  .nav-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    border: 0;
+    background: rgba(28, 24, 20, 0.28);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .app-shell.nav-open .nav-scrim {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .app-shell.nav-open .nav-scrim[hidden] {
+    display: block;
+  }
+  .nav-close {
+    display: inline-flex;
   }
   .brand {
     font-size: 22px;

@@ -162,7 +162,10 @@ export function codexDialect(root = join(process.env.CODEX_HOME ?? join(homedir(
           .trim();
         if (!text) return [];
         if (payload.role === "user") return CODEX_INJECTED.test(text) ? [] : [{ nativeEventId: id, nativeTime: at, kind: "input", text }];
-        if (payload.role === "assistant") return [{ nativeEventId: id, nativeTime: at, kind: "output", text }];
+        if (payload.role === "assistant") {
+          const cleaned = cleanHostMarkup(text) || text;
+          return cleaned ? [{ nativeEventId: id, nativeTime: at, kind: "output", text: cleaned }] : [];
+        }
         return [];
       }
       if (record.type === "event_msg") {
@@ -262,7 +265,10 @@ export function claudeDialect(root = join(process.env.CLAUDE_CONFIG_DIR ?? join(
         return [{ nativeEventId: id, nativeTime: at, kind: "input", text }];
       if (record.type === "assistant") {
         if (record.isApiErrorMessage) return [{ nativeEventId: id, nativeTime: at, kind: "turn_failed", text: text || String(record.error ?? "api error") }];
-        if (text) return [{ nativeEventId: id, nativeTime: at, kind: "output", text }];
+        if (text) {
+          const cleaned = cleanHostMarkup(text) || text;
+          return cleaned ? [{ nativeEventId: id, nativeTime: at, kind: "output", text: cleaned }] : [];
+        }
       }
       return [];
     },
@@ -394,10 +400,24 @@ async function listDesc(dir: string): Promise<string[]> {
 }
 
 const IDE_CONTEXT = /<(ide_[a-z_]+|system-reminder|pasted_content)\b[^>]*>[\s\S]*?(<\/\1>|$)/g;
+/** Host chrome that should never show as agent speech (citations, rollout ids, IDE companion XML). */
+const HOST_MARKUP =
+  /<(oai-mem-citation|rollout_ids|mem_citation|citation|external_codex_apps_[a-z0-9_]+)\b[^>]*>[\s\S]*?(<\/\1>|$)|<\/?(?:oai-mem-citation|rollout_ids|external_codex_apps_[a-z0-9_]+)\b[^>]*>/gi;
+
+/** Strip IDE / provider markup so titles and native-record bodies stay human-readable. */
+export function cleanHostMarkup(text: string) {
+  return text
+    .replace(IDE_CONTEXT, " ")
+    .replace(HOST_MARKUP, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{2,}/g, "\n")
+    .replace(/[^\S\n]{2,}/g, " ")
+    .trim();
+}
 
 function titleOf(text?: string) {
   const raw = text ?? "";
-  const human = raw.replace(IDE_CONTEXT, " ").trim() || raw.replace(/<[^>]+>/g, " ");
+  const human = cleanHostMarkup(raw) || raw.replace(/<[^>]+>/g, " ");
   const line = human
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number(dec)))

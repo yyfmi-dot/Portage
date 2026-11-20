@@ -1,10 +1,22 @@
 import type { Artifact, NativeEvent } from "@portage/core";
-import { $, stateLabels, reasonShort, deliveryStateLabels, type VMessage, ui, model, session, room } from "./state.js";
-import { isUnread } from "./model.js";
+import { $, stateLabels, type VMessage, ui, model, session, room } from "./state.js";
 import { hasOlder } from "./data.js";
 import { api } from "./api.js";
 import { kindBadge } from "./viewer/kind.js";
-import { escapeHtml, senderName, statusFor, timeLabel, initial, modeLabel, richText, formatBytes, setHtml, plural } from "./format.js";
+import {
+  escapeHtml,
+  senderName,
+  statusFor,
+  timeLabel,
+  initial,
+  modeLabel,
+  richText,
+  formatBytes,
+  setHtml,
+  plural,
+  deliveryChipLabel,
+  isWriterBusyDelivery,
+} from "./format.js";
 
 /**
  * Who this draft will wake if sent now — the same routing the Bus applies, previewed before
@@ -49,19 +61,40 @@ export function deliveriesFor(messageId: string) {
 /** One chip per recipient: who got it and how far the proof goes (queued → submitted → read). */
 export function receiptChips(message: VMessage) {
   const deliveries = deliveriesFor(message.id);
-  if (!deliveries.length)
+  if (!deliveries.length) {
+    // Agent replies and other non-wake posts have no Delivery — don't pretend they were room broadcasts.
+    if (message.sender !== "user")
+      return `<button class="receipt-row" data-message="${message.id}"><span class="rcpt quiet">Reply in this chat</span></button>`;
+    if (message.direct)
+      return `<button class="receipt-row" data-message="${message.id}"><span class="rcpt quiet">No delivery recorded</span></button>`;
     return `<button class="receipt-row" data-message="${message.id}"><span class="rcpt quiet">Logged in the room, nobody woken</span></button>`;
+  }
   return `<button class="receipt-row" data-message="${message.id}">${deliveries
     .map((d) => {
-      const tone = d.ack ? "read" : d.state === "submitted" ? "submitted" : d.state === "failed" ? "failed" : "waiting";
-      const label = d.ack
-        ? "Read"
+      const writer = isWriterBusyDelivery(d);
+      const tone = d.ack
+        ? "read"
         : d.state === "submitted"
-          ? isUnread(d) ? "Delivered · unread" : "Delivered"
-          : reasonShort[d.reason] ?? deliveryStateLabels[d.state] ?? d.state;
-      return `<span class="rcpt ${tone}"><i></i>${escapeHtml(senderName(d.recipient))}<em>${escapeHtml(label)}</em></span>`;
+          ? "submitted"
+          : writer
+            ? "waiting"
+            : d.state === "failed"
+              ? "failed"
+              : "waiting";
+      const resend =
+        message.sender === "user" && (d.state === "failed" || (d.state === "cancelled" && writer))
+          ? `<button type="button" class="rcpt-resend" data-resend-message="${message.id}">Retry</button>`
+          : "";
+      return `<span class="rcpt ${tone}"><i></i>${escapeHtml(senderName(d.recipient))}<em>${escapeHtml(deliveryChipLabel(d))}</em>${resend}</span>`;
     })
     .join("")}</button>`;
+}
+
+/** True when every delivery for this message is a dismissed/failed writer-busy attempt. */
+function isStaleWriterMessage(message: VMessage) {
+  const deliveries = deliveriesFor(message.id);
+  if (!deliveries.length || message.sender !== "user") return false;
+  return deliveries.every((d) => isWriterBusyDelivery(d) && (d.state === "failed" || d.state === "cancelled"));
 }
 
 export function emptyChat(direct: boolean) {
@@ -145,9 +178,22 @@ export function renderChat() {
   const firstId = box.querySelector<HTMLElement>("article[data-id]")?.dataset.id;
   const anchorTop = firstId ? box.scrollHeight - box.scrollTop : 0;
   let previous: VMessage | undefined;
+  const staleWriter = messages.filter(isStaleWriterMessage);
+  const staleIds = new Set(staleWriter.map((m) => m.id));
+  const live = messages.filter((m) => !staleIds.has(m.id));
+  const staleBanner =
+    staleWriter.length > 0
+      ? `<details class="stale-writer-banner"><summary>${staleWriter.length} earlier send${staleWriter.length === 1 ? "" : "s"} waited on the app writer and were dismissed</summary><div class="stale-writer-list">${staleWriter
+          .map(
+            (m) =>
+              `<div class="stale-writer-row"><span>${escapeHtml(m.text.slice(0, 80))}${m.text.length > 80 ? "…" : ""}</span><time>${timeLabel(m.at)}</time><button type="button" data-resend-message="${m.id}">Retry</button></div>`,
+          )
+          .join("")}</div></details>`
+      : "";
   box.innerHTML = messages.length
     ? olderMarkup() +
-      messages
+      staleBanner +
+      live
         .map((item) => {
           const author = session(item.sender);
           const parent = item.parentId ? byId.get(item.parentId) : undefined;
@@ -164,7 +210,7 @@ export function renderChat() {
         .join("")
     : emptyChat(Boolean(target));
   if (switched || nearBottom || ui.freshMessages.size || ui.renderedView !== "chat") box.scrollTop = box.scrollHeight;
-  else if (firstId && firstId !== messages[0]?.id) box.scrollTop = box.scrollHeight - anchorTop;
+  else if (firstId && firstId !== live[0]?.id) box.scrollTop = box.scrollHeight - anchorTop;
 }
 
 const correlationLabels: Record<NativeEvent["correlation"], string> = {
@@ -184,11 +230,27 @@ function nativeEventMarkup(e: NativeEvent) {
   const full = input && headline !== e.text
     ? `<details><summary>Everything it received, rules included · ${formatBytes(new TextEncoder().encode(e.text).length)}</summary><pre>${escapeHtml(e.text)}</pre></details>`
     : "";
-  const body = headline.length > 600
-    ? `<details><summary>${escapeHtml(headline.slice(0, 240))}…</summary><pre>${escapeHtml(headline)}</pre></details>`
-    : `<p>${richText(headline)}</p>`;
+  const shown = cleanNativeBody(headline);
+  // Pure host chrome (companion page XML, etc.) — don't clutter the record with empty shells.
+  if (!shown.trim()) return "";
+  const body = shown.length > 600
+    ? `<details><summary>${escapeHtml(shown.slice(0, 240))}…</summary><pre>${escapeHtml(shown)}</pre></details>`
+    : `<p>${richText(shown)}</p>`;
   const link = e.correlatedMessageId ? `<button data-message="${e.correlatedMessageId}">Open thread</button>` : "";
   return `<article class="native-event ${e.kind} ${e.correlation}"><header><b>${input ? "Input" : "Output"}</b>${input ? `<span class="corr ${e.correlation}">${correlationLabels[e.correlation]}</span>` : ""}<time>${at}</time>${link}</header>${body}${full}</article>`;
+}
+
+/** Defense-in-depth: strip provider chrome already stored before cleanHostMarkup existed. */
+function cleanNativeBody(text: string) {
+  return text
+    .replace(
+      /<(oai-mem-citation|rollout_ids|mem_citation|citation|external_codex_apps_[a-z0-9_]+)\b[^>]*>[\s\S]*?(<\/\1>|$)|<\/?(?:oai-mem-citation|rollout_ids|external_codex_apps_[a-z0-9_]+)\b[^>]*>/gi,
+      " ",
+    )
+    .replace(/<(ide_[a-z_]+|system-reminder|pasted_content)\b[^>]*>[\s\S]*?(<\/\1>|$)/g, " ")
+    .replace(/\n{2,}/g, "\n")
+    .replace(/[^\S\n]{2,}/g, " ")
+    .trim() || text;
 }
 
 /** What the input said in the user's words: the Portage message it carries, not the rule layers around it. */

@@ -106,6 +106,8 @@ export const api = {
   markReady: (id: string) => post<{ deliveries: Delivery[] }>(`/api/sessions/${id}/ready`),
   directConversation: (id: string) => post<Conversation>(`/api/sessions/${id}/direct`),
 
+  /** Load the optional studio cast used by “Watch a demo” (not present on a normal serve). */
+  ensureStudioDemo: () => post<{ ok: boolean; roomId: string }>("/api/studio-demo/ensure"),
   createRoom: (title: string) => post<Conversation>("/api/rooms", { title }),
   renameRoom: (roomId: string, title: string) => post<Conversation>(`/api/rooms/${roomId}`, { title }),
   setWakeMode: (roomId: string, mode: string, coordinatorParticipantId?: string) =>

@@ -4,6 +4,7 @@ export type * from "./api.js";
 export {
   applyDeliveryTransition,
   canTransition,
+  isWriterBusyFailure,
   nextAutoRound,
   shouldHoldForConditions,
 } from "./delivery.js";

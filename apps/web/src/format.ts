@@ -1,4 +1,4 @@
-import { $, reasonLabels, type VSession, type VDelivery, ui, model, session, room } from "./state.js";
+import { $, reasonLabels, reasonShort, deliveryStateLabels, type VSession, type VDelivery, ui, model, session, room } from "./state.js";
 
 export function escapeHtml(value: unknown) {
   return String(value).replace(
@@ -68,8 +68,32 @@ export function countdownText(at: number) {
   return left > 0 ? `continues in ${left}s` : "continuing now";
 }
 
+/** Writer-busy (and healed historical Failed) should never read as a permanent graveyard. */
+export function isWriterBusyDelivery(d: Pick<VDelivery, "reason" | "detail" | "state">) {
+  if (d.reason === "attached") return true;
+  const blob = `${d.reason} ${d.detail ?? ""}`;
+  return /active writer|already has an active writer/i.test(blob);
+}
+
+/** Chip / board label for a delivery, with writer-busy mapped to Held language. */
+export function deliveryChipLabel(d: VDelivery) {
+  if (d.ack) return "Read";
+  if (d.state === "submitted") return !d.ack && d.tracksRead ? "Delivered · unread" : "Delivered";
+  if (isWriterBusyDelivery(d)) return d.state === "cancelled" ? "Dismissed · writer was busy" : "Writer held";
+  if (d.state === "failed") return "Failed";
+  if (d.state === "cancelled") return "Cancelled";
+  return reasonShort[d.reason] ?? deliveryStateLabels[d.state] ?? d.state;
+}
+
 /** Why a delivery is waiting, plus when it will move again if that is known. */
 export function waitMarkup(d: VDelivery) {
+  if (isWriterBusyDelivery(d)) {
+    const label =
+      d.state === "cancelled"
+        ? "Earlier attempt while its app held the writer — dismissed, not a hard failure"
+        : (reasonLabels.attached ?? "Waiting on its own app; Portage queues or retries automatically");
+    return escapeHtml(d.detail && d.state !== "cancelled" ? d.detail : label);
+  }
   // Prefer the adapter's concrete detail (e.g. writer lock) over the generic reason label.
   const label = d.detail?.trim()
     ? d.detail.trim()

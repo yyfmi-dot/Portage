@@ -8,10 +8,12 @@
   </head>
   <body>
     <div class="app-shell" id="appShell">
-      <aside class="sidebar">
+      <button type="button" class="nav-scrim" id="navScrim" aria-label="Close navigation" hidden></button>
+      <aside class="sidebar" id="sidebar">
         <div class="brand">
           <span class="brand-mark">p</span><span>portage<span class="brand-dot">.</span></span
           ><span class="prototype">v1.0</span>
+          <button type="button" class="nav-close" id="navClose" aria-label="Close navigation">×</button>
         </div>
         <button class="workspace" id="workspaceButton">
           <span class="workspace-icon">P</span><span>Personal workspace<small>Everything stays local</small></span
@@ -45,6 +47,7 @@
       </aside>
       <div class="workspace-main">
         <header class="topbar">
+          <button type="button" class="nav-toggle" id="navToggle" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
           <div class="breadcrumb">
             <span>Workspace</span><span>/</span><strong id="currentLocation">Portage Studio</strong>
           </div>

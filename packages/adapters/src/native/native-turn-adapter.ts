@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import type { AdapterCapabilityFlags, InjectResult, Message, Readiness, Session } from "@portage/core";
+import { isWriterBusyFailure, type AdapterCapabilityFlags, type InjectResult, type Message, type Readiness, type Session } from "@portage/core";
 import { lastLine, TranscriptAdapter, type McpLaunch, type TranscriptAdapterOptions, type TurnEnd } from "./transcript-adapter.js";
 import { readPolicy, type NativeTurnPolicy } from "./transcripts.js";
 
@@ -190,5 +190,5 @@ export class NativeTurnAdapter extends TranscriptAdapter {
 
 /** Codex refuses a second resume while App / IDE still holds the thread writer. */
 export function isActiveWriterConflict(error: string): boolean {
-  return /active writer|already has an active writer/i.test(error);
+  return isWriterBusyFailure(error);
 }

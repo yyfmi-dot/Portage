@@ -111,6 +111,7 @@ export function buildModel(s: Snapshot): Model {
         adapterId: x.adapterId,
         workdir: x.workdir,
         bindingEpoch: x.bindingEpoch ?? 1,
+        demo: x.nativeIdentity.startsWith("demo-"),
         detail: runtime.detail,
         checkpoint: s.nativeCheckpoints[x.id],
       };

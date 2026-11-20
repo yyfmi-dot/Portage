@@ -32,7 +32,7 @@ describe("daemon HTTP API L4 closed loop", () => {
   beforeAll(async () => {
     home = mkdtempSync(join(tmpdir(), "portage-home-"));
     process.env.PORTAGE_HOME = home;
-    started = await startServer(8791);
+    started = await startServer(8791, { seedDemo: true });
     base = `http://127.0.0.1:${started.port}`;
   });
 
@@ -303,7 +303,7 @@ describe("daemon HTTP API L4 closed loop", () => {
     const lastSeq = Math.max(...before.messages.filter((m: { conversationId: string }) => m.conversationId === "room_dev").map((m: { seq: number }) => m.seq));
     await stop(started!);
     // A fresh port: the client must not reuse keep-alive sockets of the stopped server.
-    started = await startServer(8795);
+    started = await startServer(8795, { seedDemo: true });
     base = `http://127.0.0.1:${started.port}`;
     const after = await snapshot();
     expect(after.messages.length).toBe(before.messages.length);

@@ -41,7 +41,7 @@ Portage is a local daemon and web app that connects agent sessions you already r
 
 ## Quick start
 
-You need **Node.js 22.13+**, which includes the built-in `node:sqlite`, on macOS or Linux. To wake real sessions you also need the Codex CLI and/or Claude Code. Without them, the built-in demo room still works.
+You need **Node.js 22.13+**, which includes the built-in `node:sqlite`, on macOS or Linux. To wake sessions you also need the Codex CLI and/or Claude Code.
 
 ```bash
 git clone git@github.com:yyfmi-dot/Portage.git
@@ -52,11 +52,11 @@ npm run daemon:serve   # daemon + API on http://127.0.0.1:8787
 npm run dev:web        # in a second terminal: UI on http://127.0.0.1:5173
 ```
 
-Open <http://127.0.0.1:5173>.
+Open <http://127.0.0.1:5173>. The daemon starts **real-sessions-only** (no seeded fake agents).
 
-1. **Watch a delivery chain.** In the seeded room, click "▶ Watch a demo". The coordinator dispatches to a member, who replies with an artifact. Every step is a real delivery through the bus.
-2. **Add your own sessions.** Click "＋" next to *Sessions* (*Find local sessions*). Each candidate shows how Portage will reach it (native turn or file inbox), whether it's currently open elsewhere, and its working directory.
-3. **Talk to the room.** Write a message, or `@` a member. Under the box, "Wakes" shows who will be woken and why. Open any message to see its proof ladder and the exact query each recipient received.
+1. **Add your sessions.** Click "＋" next to *Sessions* (*Find local sessions*). Each candidate shows how Portage will reach it (native turn or file inbox), whether it's currently open elsewhere, and its working directory. Create a room and drag them in.
+2. **Talk to a session or a room.** Write a message, or `@` a member. Under the box, "Wakes" shows who will be woken and why. Open any message to see its proof ladder and the exact query each recipient received.
+3. **Optional animation.** Click *Watch a demo* to load a temporary studio cast (file-inbox agents) and play a coordinator → member → artifact delivery. Or run `npm run daemon:demo` / set `PORTAGE_SEED_DEMO=1` if you want that cast at serve time.
 
 Data lives in `~/.portage`: `portage.db`, inboxes and artifacts. Set `PORTAGE_HOME` to use another location and `PORTAGE_PORT` for another port.
 
