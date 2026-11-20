@@ -149,9 +149,10 @@ export function createRuntime(options: RuntimeOptions = {}): DaemonRuntime {
   runtime = { bus, inbox, native, store, persist, tick, syncNative, renameNative, interrupt, refreshDiscovery, paths };
 
   // A turn that was running when the daemon stopped is not ours anymore — clear every session, not
-  // only native ones (the demo seed used to leave a file-inbox session "Working" forever).
+  // only native ones (the demo seed used to leave a file-inbox session "Working" forever). No detail:
+  // that string used to linger on the office floor as a host note.
   for (const [id, state] of bus.runtime) {
-    if (state.execution === "running") bus.setSessionExecution(id, "idle", "Portage restarted and no longer tracks the earlier turn");
+    if (state.execution === "running" || state.detail?.startsWith("Portage restarted")) bus.setSessionExecution(id, "idle");
   }
   return runtime;
 }

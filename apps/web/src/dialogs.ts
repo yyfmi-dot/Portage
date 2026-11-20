@@ -59,11 +59,18 @@ export function showRules(scope: "room" | "global") {
     el.value = String(values[input.id]);
     el.disabled = scope === "global";
   }
+  const budgets = document.querySelector(".rule-options") as HTMLElement | null;
+  if (budgets) budgets.hidden = scope === "global";
   $("insertFrontmatter").hidden = scope === "global";
+  $("rulesDialog").querySelector("h2")!.textContent = scope === "global" ? "Global rules" : "Room rules";
+  $("rulesDialog").querySelector(".room-eyebrow")!.textContent =
+    scope === "global" ? "Sent with every delivery, in every room" : "Every publish keeps a version";
   $("rulesDescription").textContent =
     scope === "global"
-      ? `Global rules v${model().globalRevision}: sent with every delivery in every room.`
+      ? `Global rules v${model().globalRevision}: every member in every room receives this text with each delivery.`
       : `Rules for “${current.name}”, v${current.revision}. The text tells members how to work together; an optional YAML policy header at the top is validated and enforced.`;
+  $("rulesValidation").textContent =
+    scope === "global" ? "The text applies from the next delivery" : "Limits apply right away; the text applies from the next delivery";
   for (const button of document.querySelectorAll<HTMLButtonElement>("[data-scope]"))
     button.classList.toggle("selected", button.dataset.scope === scope);
   validateRules();

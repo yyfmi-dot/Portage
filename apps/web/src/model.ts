@@ -11,7 +11,7 @@ export function hashIndex(value: string, size: number) {
 
 export const providerLabel = (p: string) => (p === "codex" ? "Codex" : p === "claude" ? "Claude" : p);
 export const hostLabel = (h: string) =>
-  ({ terminal: "Terminal", vscode_cli: "VS Code", app: "Desktop app", headless: "Background" })[h] ?? h;
+  ({ terminal: "Terminal", vscode_cli: "VS Code", app: "Desktop app", headless: "No window" })[h] ?? h;
 
 /**
  * A session counts as "reading" once any of its deliveries was ever acknowledged by its agent.
