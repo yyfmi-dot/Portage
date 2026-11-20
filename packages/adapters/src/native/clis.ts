@@ -1,8 +1,8 @@
-import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, appendFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
+import { appServerCall } from "./app-server.js";
 import type { TurnCli } from "./native-turn-adapter.js";
 
 const toml = (value: string) => JSON.stringify(value);
@@ -63,62 +63,6 @@ export const claudeCli: TurnCli = {
   rename: ({ nativeSessionId, transcript, title }) =>
     appendFile(transcript, `${JSON.stringify({ type: "custom-title", customTitle: title, sessionId: nativeSessionId })}\n`),
 };
-
-/** One JSON-RPC request to a short-lived `codex app-server` (stdio, newline-delimited JSON). */
-async function appServerCall(binary: string, method: string, params: unknown, timeoutMs = 30_000): Promise<unknown> {
-  const child = spawn(binary, ["app-server"], { stdio: ["pipe", "pipe", "pipe"], env: process.env });
-  let stderr = "";
-  child.stderr!.on("data", (chunk: Buffer) => (stderr = (stderr + chunk.toString("utf8")).slice(-2000)));
-  const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
-  let buffered = "";
-  child.stdout!.on("data", (chunk: Buffer) => {
-    buffered += chunk.toString("utf8");
-    let newline: number;
-    while ((newline = buffered.indexOf("\n")) >= 0) {
-      const line = buffered.slice(0, newline);
-      buffered = buffered.slice(newline + 1);
-      let reply: { id?: number; result?: unknown; error?: { message?: string } };
-      try {
-        reply = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      const waiter = reply.id === undefined ? undefined : pending.get(reply.id);
-      if (!waiter) continue;
-      pending.delete(reply.id!);
-      if (reply.error) waiter.reject(new Error(reply.error.message ?? `${method} failed`));
-      else waiter.resolve(reply.result);
-    }
-  });
-  const request = (id: number, name: string, body: unknown) =>
-    new Promise<unknown>((resolve, reject) => {
-      pending.set(id, { resolve, reject });
-      child.stdin!.write(`${JSON.stringify({ id, method: name, params: body })}\n`);
-    });
-  const exited = new Promise<never>((_, reject) => {
-    child.on("error", reject);
-    child.on("close", (code) => reject(new Error(lastLine(stderr) || `codex app-server exited with ${code}`)));
-  });
-  const timer = new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`codex app-server: ${method} timed out`)), timeoutMs).unref());
-  try {
-    return await Promise.race([
-      (async () => {
-        await request(1, "initialize", { clientInfo: { name: "portage", title: "Portage", version: "1.0.0" } });
-        child.stdin!.write(`${JSON.stringify({ method: "initialized" })}\n`);
-        return request(2, method, params);
-      })(),
-      exited,
-      timer,
-    ]);
-  } finally {
-    child.stdin!.end();
-    child.kill();
-  }
-}
-
-function lastLine(text: string) {
-  return text.trim().split("\n").filter(Boolean).pop()?.trim() ?? "";
-}
 
 /** Explicit override, then PATH, then where vendor apps bundle the CLI. */
 async function resolveBinary(name: string, override: string | undefined, bundles: () => Promise<string[]>) {

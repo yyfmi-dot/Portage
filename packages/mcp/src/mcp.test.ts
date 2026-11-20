@@ -134,7 +134,8 @@ describe("MCP bridge over stdio (real MCP client → real portage-mcp process �
     // reading must not change busy/idle — that is the host's signal
     expect(snap.runtimes.s_lead.execution).toBe("idle");
 
-    // Lead routes to builder (seeded as running → queued)
+    // Lead routes to builder while builder is mid-turn → queued as busy
+    expect((await call(builder, "portage_status", { state: "running" })).isError).toBe(false);
     const routed = await call(lead, "portage_send", {
       text: "@builder 请核对 native session 绑定",
       replyToMessageId: user.message.id,

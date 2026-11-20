@@ -59,6 +59,8 @@ export type Session = {
 };
 
 export type AdapterCapabilityFlags = {
+  /** A user message to a session mid-turn joins that turn (the CLI's own "steer"), instead of waiting. */
+  steer?: boolean;
   discover: boolean;
   read: boolean;
   write: boolean;

@@ -104,6 +104,8 @@ describe("daemon HTTP API L4 closed loop", () => {
     const receipt = snap.receipts.find((r: { deliveryId: string }) => r.deliveryId === user.json.deliveries[0].id);
     expect(receipt).toMatchObject({ adapterId: "cli-file-inbox", proofLevel: "submitted" });
 
+    // Builder is mid-turn: its delivery waits in order; reviewer is free and gets it now.
+    expect((await post("/api/agent/s_builder/status", { execution: "running" })).status).toBe(200);
     const agent = await post("/api/conversations/room_dev/send", {
       senderId: "p_lead",
       source: "agent",

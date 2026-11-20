@@ -21,6 +21,8 @@ export type NativeTurnPolicy = {
   /** Codex `sandbox_mode`: read-only | workspace-write | danger-full-access. */
   sandbox?: string;
   networkAccess?: boolean;
+  /** Codex `approval_policy`: untrusted | on-request | never (granular forms are not carried over). */
+  approvalPolicy?: string;
   /** Claude `--permission-mode`. */
   permissionMode?: string;
 };
@@ -134,7 +136,12 @@ export function codexDialect(root = join(process.env.CODEX_HOME ?? join(homedir(
       if (record.type !== "turn_context") return undefined;
       const sandbox = record.payload?.sandbox_policy;
       if (!sandbox?.type) return undefined;
-      return { sandbox: String(sandbox.type), networkAccess: sandbox.network_access === true };
+      const approval = record.payload?.approval_policy;
+      return {
+        sandbox: String(sandbox.type),
+        networkAccess: sandbox.network_access === true,
+        ...(typeof approval === "string" ? { approvalPolicy: approval } : {}),
+      };
     },
     parse(record, offset) {
       const payload = record.payload ?? {};

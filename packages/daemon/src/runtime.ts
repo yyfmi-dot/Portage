@@ -148,10 +148,10 @@ export function createRuntime(options: RuntimeOptions = {}): DaemonRuntime {
 
   runtime = { bus, inbox, native, store, persist, tick, syncNative, renameNative, interrupt, refreshDiscovery, paths };
 
-  // A turn that was running when the daemon stopped is not ours anymore; readiness sees whoever holds it.
-  for (const session of nativeSessions()) {
-    if (bus.runtime.get(session.id)?.execution === "running")
-      bus.setSessionExecution(session.id, "idle", "Portage restarted and no longer tracks the earlier turn");
+  // A turn that was running when the daemon stopped is not ours anymore — clear every session, not
+  // only native ones (the demo seed used to leave a file-inbox session "Working" forever).
+  for (const [id, state] of bus.runtime) {
+    if (state.execution === "running") bus.setSessionExecution(id, "idle", "Portage restarted and no longer tracks the earlier turn");
   }
   return runtime;
 }
@@ -195,7 +195,6 @@ export async function seedDemoRoom(runtime: DaemonRuntime) {
   demo("demo-codex-lead", "codex", "terminal", "Coordinator", "lead");
   demo("demo-claude-builder", "claude", "vscode_cli", "Adapter builder", "builder");
   demo("demo-claude-reviewer", "claude", "terminal", "Code reviewer", "reviewer");
-  bus.setSessionExecution("s_builder", "running");
 
   bus.createRoom({
     id: "room_dev",

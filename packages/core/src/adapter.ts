@@ -68,4 +68,58 @@ export interface SessionAdapter {
 
   /** Give the native session this title, the way its own app or CLI renames it. */
   rename?(session: Session, title: string): Promise<void>;
+
+  /**
+   * Start a brand-new native session in `workdir`, bound to the Portage session id it will be
+   * registered under. Its first input arrives as an ordinary delivery.
+   */
+  createSession?(input: { workdir: string; sessionId: string; title?: string }): Promise<{ nativeSessionId: string; host: string }>;
+
+  /** Answer an approval or question the native session is waiting on; false if it is no longer pending. */
+  answer?(requestId: string, answer: ApprovalAnswer): boolean;
 }
+
+/** One step of a running turn, as the native host reports it. */
+export type LiveStep = {
+  id: string;
+  kind: "command" | "edit" | "message" | "tool" | "search" | "plan" | "other";
+  title: string;
+  /** Output tail, diff or text, bounded. */
+  detail?: string;
+  status: "running" | "done" | "failed" | "declined";
+  startedAt?: number;
+  endedAt?: number;
+};
+
+/** What a session is doing in its current (or last) turn, streamed while it runs. Not persisted. */
+export type LiveTurn = {
+  sessionId: string;
+  turnId: string;
+  status: "running" | "done" | "failed" | "interrupted";
+  startedAt: number;
+  endedAt?: number;
+  steps: LiveStep[];
+  /** The turn's aggregated diff across all file changes, bounded. */
+  diff?: string;
+  plan?: Array<{ step: string; status: string }>;
+  error?: string;
+};
+
+export type ApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+
+/** Something a running turn needs the user to approve or answer before it continues. */
+export type ApprovalRequest = {
+  id: string;
+  sessionId: string;
+  kind: "command" | "fileChange" | "permissions" | "question";
+  requestedAt: string;
+  title: string;
+  command?: string;
+  cwd?: string;
+  reason?: string;
+  changes?: Array<{ path: string; kind: string; diff: string }>;
+  questions?: Array<{ id: string; header: string; question: string; options: string[]; secret: boolean }>;
+  decisions: ApprovalDecision[];
+};
+
+export type ApprovalAnswer = { decision: ApprovalDecision; answers?: Record<string, string[]> };
