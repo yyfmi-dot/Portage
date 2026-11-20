@@ -1,7 +1,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { AdapterCapabilityFlags, InjectResult, Message, Readiness, Session } from "@portage/core";
-import { lastLine, TranscriptAdapter, type McpLaunch, type TranscriptAdapterOptions } from "./transcript-adapter.js";
+import { lastLine, TranscriptAdapter, type McpLaunch, type TranscriptAdapterOptions, type TurnEnd } from "./transcript-adapter.js";
 import { readPolicy, type NativeTurnPolicy } from "./transcripts.js";
+
+export type { McpLaunch, TurnEnd };
 
 /** One CLI's headless-turn interface: how to resume a session with input on stdin, and how to read its stream. */
 export type TurnCli = {

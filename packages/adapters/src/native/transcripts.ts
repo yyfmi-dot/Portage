@@ -100,11 +100,18 @@ export function codexDialect(root = join(process.env.CODEX_HOME ?? join(homedir(
       return files.sort((a, b) => b.mtime - a.mtime).slice(0, limit).map((f) => f.path);
     },
     async locate(id) {
+      // Codex may keep writing a forked rollout (`…-<threadId>_<forkId>.jsonl`) while the
+      // original `…-<threadId>.jsonl` stays frozen — always follow the newest file for this id.
+      const matches: Array<{ path: string; mtime: number }> = [];
       for (const day of await days()) {
-        const name = (await listDesc(day)).find((n) => n.endsWith(`-${id}.jsonl`));
-        if (name) return join(day, name);
+        for (const name of await listDesc(day)) {
+          if (!name.startsWith("rollout-") || !name.endsWith(".jsonl")) continue;
+          if (!(name.endsWith(`-${id}.jsonl`) || name.includes(`-${id}_`))) continue;
+          const path = join(day, name);
+          matches.push({ path, mtime: (await stat(path)).mtimeMs });
+        }
       }
-      return undefined;
+      return matches.sort((a, b) => b.mtime - a.mtime)[0]?.path;
     },
     async describe(path) {
       const { records, mtime } = await readHead(path);

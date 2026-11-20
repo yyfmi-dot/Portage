@@ -623,6 +623,10 @@ export class MemoryBus implements PortageBusApi {
         causalParentIds: message ? [message.id] : [],
         payload: { sessionId, kind: event.kind, correlation: event.correlation, deliveryId: event.correlatedDeliveryId ?? null },
       });
+      // The turn answered in its own transcript without portage_send — still show it in Portage chat.
+      if (event.kind === "output" && event.correlation === "inferred" && event.correlatedMessageId && event.text.trim()) {
+        void this.ingestNativeReply(sessionId, event);
+      }
     }
     if (this.nativeEvents.length > NATIVE_EVENTS_KEPT * 1.25) {
       this.nativeEvents = this.nativeEvents.slice(-NATIVE_EVENTS_KEPT);
@@ -1297,6 +1301,37 @@ export class MemoryBus implements PortageBusApi {
       message: result.message,
       deliveries: this.deliveriesByMessage.get(result.message.id) ?? [],
     });
+  }
+
+  /**
+   * A native assistant output that follows a Portage-delivered input becomes a Portage message, so
+   * the chat updates even when the model replies in-transcript instead of calling portage_send.
+   */
+  private async ingestNativeReply(sessionId: string, event: NativeEvent) {
+    const parentId = event.correlatedMessageId;
+    if (!parentId || !event.text.trim()) return;
+    const parent = this.messageById.get(parentId);
+    const participant = this.participantForSession(sessionId);
+    if (!parent) return;
+    const already = [...this.messages.values()].some(
+      (m) => m.senderId === participant.id && m.causalParentIds.includes(parentId),
+    );
+    if (already) return;
+    const direct = parent.conversationId === `dm_${sessionId}`;
+    try {
+      await this.send({
+        conversationId: parent.conversationId,
+        senderId: participant.id,
+        target: direct ? { kind: "participant", id: "user" } : { kind: "room", id: parent.conversationId },
+        text: event.text.trim(),
+        traceId: parent.traceId,
+        causalParentIds: [parentId],
+        source: "agent",
+        idempotencyKey: `native_reply_${sessionId}_${event.nativeEventId}`,
+      });
+    } catch {
+      // Room membership / communication gates can refuse; the NativeEvent is still kept for the record tab.
+    }
   }
 
   /** Answering a message is verifiable proof its recipient read it. */

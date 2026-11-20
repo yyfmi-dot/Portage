@@ -91,9 +91,12 @@ export abstract class TranscriptAdapter implements SessionAdapter {
     const paths = await dialect.recent(this.base.discoverLimit ?? 40);
     const attached = await this.openTranscripts(paths);
     const out: DiscoveredEndpoint[] = [];
+    const seen = new Set<string>();
     for (const path of paths) {
       const info = await dialect.describe(path).catch(() => undefined);
-      if (!info) continue;
+      if (!info || seen.has(info.nativeSessionId)) continue;
+      // `recent` is newest-first; skip older rollouts / forks of the same thread.
+      seen.add(info.nativeSessionId);
       out.push({
         suggestedSessionKey: `${dialect.provider}:${info.nativeSessionId}`,
         provider: dialect.provider,
@@ -162,10 +165,10 @@ export abstract class TranscriptAdapter implements SessionAdapter {
   }
 
   protected async transcript(session: Session): Promise<string | undefined> {
-    const cached = this.paths.get(session.nativeIdentity);
-    if (cached && (await stat(cached).catch(() => undefined))) return cached;
+    // Always re-locate: Codex can switch to a newer forked rollout while we still hold the old path.
     const path = await this.base.dialect.locate(session.nativeIdentity);
     if (path) this.paths.set(session.nativeIdentity, path);
+    else this.paths.delete(session.nativeIdentity);
     return path;
   }
 

@@ -138,9 +138,11 @@ describe("native read-back", () => {
       ["L5", "turn_started", "unknown", null],
       ["L6", "output", "unknown", null],
     ]);
+    await new Promise((r) => setTimeout(r, 20));
     expect((await bus.getReceipts(delivery.id)).map((r) => [r.proofLevel, r.adapterId, r.nativeMessageId ?? null])).toEqual([
       ["submitted", "codex-native", null],
       ["native_confirmed", "codex-native", "L2"],
+      ["agent_ack", "reply", null],
     ]);
     const observed = bus.events.filter((e) => e.eventType === "NativeEventObserved");
     expect(observed.at(-4)).toMatchObject({ conversationId: delivery.conversationId, traceId: sent.message.traceId, causalParentIds: [sent.message.id] });
@@ -148,7 +150,7 @@ describe("native read-back", () => {
 
     // re-reading the same records (e.g. after a cursor reset) adds nothing and confirms nothing twice
     expect(bus.recordNativeRead("s_lead", "codex-native", { observations: [{ nativeEventId: "L2", nativeTime: "t1", kind: "input", text: query }], cursor: 500, source: "/r.jsonl" })).toEqual([]);
-    expect(await bus.getReceipts(delivery.id)).toHaveLength(2);
+    expect(await bus.getReceipts(delivery.id)).toHaveLength(3);
     expect(bus.listNativeEvents("s_lead", 2).map((e) => e.nativeEventId)).toEqual(["L5", "L6"]);
     expect(bus.takeDirty().nativeEvents).toHaveLength(7);
   });
@@ -170,6 +172,25 @@ describe("native read-back", () => {
     expect(state(id).state).toBe("submitted");
     expect((await bus.getReceipts(id)).map((r) => r.proofLevel)).toEqual(["native_confirmed"]);
     mode = "ok";
+  });
+
+  it("turns a native assistant reply after a Portage delivery into a Portage message", async () => {
+    const { bus, dm } = setup();
+    const sent = await dm("s_lead", "hi", "nr1");
+    const deliveryId = sent.deliveries[0]!.id;
+    const marker = `[Original message · v1 · ${sent.message.id}]\nhi`;
+    bus.recordNativeRead("s_lead", "codex-native", {
+      observations: [
+        { nativeEventId: "L1", nativeTime: "t1", kind: "input", text: marker },
+        { nativeEventId: "L2", nativeTime: "t2", kind: "output", text: "嗨，我在。" },
+      ],
+      cursor: 2,
+      source: "/a.jsonl",
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    const reply = [...bus.messages.values()].find((m) => m.senderId === "p_lead" && m.causalParentIds.includes(sent.message.id));
+    expect(reply?.parts[0]).toMatchObject({ kind: "text", text: "嗨，我在。" });
+    expect((await bus.getReceipts(deliveryId)).some((r) => r.proofLevel === "agent_ack")).toBe(true);
   });
 
   it("follows a rename made in the session's own app; the first reading and Portage's own write-back change nothing", () => {

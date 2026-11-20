@@ -360,13 +360,19 @@ route("POST", "/api/agent/:session/send", async ({ runtime, params, body }) => {
   if (body.replyToMessageId && !replyTo) throw new HttpError(404, `message not found: ${body.replyToMessageId}`);
 
   const rooms = runtime.bus.activeRoomsForSession(session.id);
+  const direct = runtime.bus.conversations.get(`dm_${session.id}`);
   const conversationId = String(body.roomId ?? replyTo?.conversationId ?? "");
   const room = conversationId
     ? rooms.find((r) => r.id === conversationId)
     : rooms.length === 1
       ? rooms[0]
       : undefined;
-  if (!room) {
+  // A direct chat with the user has no room membership — still a valid place to answer.
+  const conversation =
+    room ??
+    (conversationId && direct?.id === conversationId ? direct : undefined) ??
+    (!conversationId && !rooms.length && direct ? direct : undefined);
+  if (!conversation) {
     throw new HttpError(
       400,
       rooms.length
@@ -378,7 +384,7 @@ route("POST", "/api/agent/:session/send", async ({ runtime, params, body }) => {
   }
 
   const members = runtime.bus.memberships
-    .filter((m) => m.conversationId === room.id && !m.leftAt)
+    .filter((m) => m.conversationId === conversation.id && !m.leftAt)
     .map((m) => runtime.bus.participants.get(m.participantId))
     .filter((p): p is NonNullable<typeof p> => Boolean(p?.sessionId));
   const byAlias = new Map(members.map((p) => [runtime.bus.sessions.get(p.sessionId!)!.alias, p.id]));
@@ -392,9 +398,9 @@ route("POST", "/api/agent/:session/send", async ({ runtime, params, body }) => {
     .filter((id): id is string => Boolean(id) && id !== me.id) as string[];
 
   return runtime.bus.send({
-    conversationId: room.id,
+    conversationId: conversation.id,
     senderId: me.id,
-    target: { kind: "room", id: room.id },
+    target: conversation.kind === "direct" ? { kind: "participant", id: "user" } : { kind: "room", id: conversation.id },
     text,
     artifactIds: Array.isArray(body.artifactIds) ? body.artifactIds.map(String) : [],
     mentionParticipantIds,

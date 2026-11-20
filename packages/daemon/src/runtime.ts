@@ -109,9 +109,12 @@ export function createRuntime(options: RuntimeOptions = {}): DaemonRuntime {
     if (!session) return;
     const adapter = adapterFor(session);
     if (!adapter.readNative) return;
-    const cursor = bus.nativeCheckpoints.get(sessionId)?.cursor ?? 0;
+    const previous = bus.nativeCheckpoints.get(sessionId);
     try {
-      bus.recordNativeRead(sessionId, adapter.id, await adapter.readNative(session, cursor));
+      // Codex may move a thread to a newer forked rollout; a cursor into the old file is meaningless there.
+      let read = await adapter.readNative(session, previous?.cursor ?? 0);
+      if (previous?.source && read.source !== previous.source) read = await adapter.readNative(session, 0);
+      bus.recordNativeRead(sessionId, adapter.id, read);
     } catch (error) {
       bus.recordNativeReadError(sessionId, session.nativeIdentity, error instanceof Error ? error.message : String(error));
     }

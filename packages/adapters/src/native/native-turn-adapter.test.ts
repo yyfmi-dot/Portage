@@ -122,6 +122,25 @@ describe.skipIf(!posix)("NativeTurnAdapter · discovery", () => {
     expect(found.find((e) => e.nativeSessionId === "t-ide")!.displayName).toBe("看看这个文件");
     expect(found.find((e) => e.nativeSessionId === "t-link")!.displayName).toBe("Chat thread 接着这个线程做");
   });
+
+  it("follows the newest forked Codex rollout for a thread, not the frozen original", async () => {
+    const day = join(home, "sessions", "2026", "11", "18");
+    mkdirSync(day, { recursive: true });
+    const root = join(day, "rollout-2026-11-18T10-00-00-t-fork.jsonl");
+    const fork = join(day, "rollout-2026-11-18T12-00-00-t-fork_01a1dead-beef-0000-0000-000000000001.jsonl");
+    const meta = { type: "session_meta", payload: { id: "t-fork", cwd: workdir, originator: "codex_exec" } };
+    writeFileSync(root, JSON.stringify(meta) + "\n" + JSON.stringify(said("user", "old file")) + "\n");
+    writeFileSync(fork, JSON.stringify(meta) + "\n" + JSON.stringify(said("user", "new fork")) + "\n");
+    const old = new Date(Date.now() - 600_000);
+    const recent = new Date(Date.now() - 1_000);
+    utimesSync(root, old, old);
+    utimesSync(fork, recent, recent);
+    const dialect = codexDialect(join(home, "sessions"));
+    expect(await dialect.locate("t-fork")).toBe(fork);
+    const found = await adapter().discover();
+    expect(found.filter((e) => e.nativeSessionId === "t-fork")).toHaveLength(1);
+    expect(found.find((e) => e.nativeSessionId === "t-fork")!.displayName).toBe("new fork");
+  });
 });
 
 describe.skipIf(!posix)("NativeTurnAdapter · readiness", () => {
