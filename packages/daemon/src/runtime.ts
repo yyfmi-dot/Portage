@@ -210,6 +210,17 @@ export async function seedDemoRoom(runtime: DaemonRuntime) {
       const active = bus.memberships.some((m) => m.conversationId === "room_dev" && m.participantId === pid && !m.leftAt);
       if (!active) await bus.joinRoom({ conversationId: "room_dev", participantId: pid });
     }
+    // A prior serve may have retired the cast (members left → wake fell to swarm). Restore the
+    // studio topology so “Watch a demo” still shows coordinator dispatch.
+    if (bus.conversations.get("room_dev")?.title !== "Portage Studio") {
+      bus.renameRoom({ conversationId: "room_dev", title: "Portage Studio", actorId: "system" });
+    }
+    await bus.setWakeMode({
+      conversationId: "room_dev",
+      mode: "coordinator",
+      coordinatorParticipantId: "p_lead",
+      actorId: "system",
+    });
     return;
   }
 
