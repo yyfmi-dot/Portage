@@ -91,7 +91,8 @@ export function createRuntime(options: RuntimeOptions = {}): DaemonRuntime {
         nativeMessageId: result.nativeMessageId,
         adapterId: adapter.id,
         proof: result.proof,
-        running: adapter instanceof NativeTurnAdapter,
+        // Only when the adapter started a Portage-owned turn (not `codex queue` into the IDE).
+        running: result.running === true,
       };
     },
     verify: async ({ session, message, delivery }: { session: Session; message: Message; delivery: Delivery }) =>
@@ -127,6 +128,16 @@ export function createRuntime(options: RuntimeOptions = {}): DaemonRuntime {
       const before = state();
       await syncNative(session.id);
       if (state() !== before) changed = true;
+      // Queue submits used to mark the session running forever (no Portage child to end). Heal that.
+      const adapter = adapterFor(session);
+      if (
+        bus.runtime.get(session.id)?.execution === "running" &&
+        adapter instanceof NativeTurnAdapter &&
+        !adapter.isRunning(session.id)
+      ) {
+        await bus.reportExecution(session.id, "idle");
+        changed = true;
+      }
     }
     return changed;
   };

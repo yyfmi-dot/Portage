@@ -250,7 +250,7 @@ describe.skipIf(!posix)("NativeTurnAdapter · a turn", () => {
     const s = session("t5");
 
     const result = await a.inject(s, message("msg_q1"), query("msg_q1", "请评审方案"));
-    expect(result).toEqual({ ok: true, proof: "submitted", nativeMessageId: "t5" });
+    expect(result).toEqual({ ok: true, proof: "submitted", nativeMessageId: "t5", running: true });
     expect(await a.readiness(s)).toMatchObject({ ready: false, reason: "busy" });
 
     const [{ argv, cwd }] = readFileSync(argsLog, "utf8").trim().split("\n").map((l) => JSON.parse(l));
@@ -313,7 +313,7 @@ describe.skipIf(!posix)("NativeTurnAdapter · a turn", () => {
     process.env.FAKE_CODEX_MODE = "writer";
     rollout("t7w", []);
     const result = await adapter().inject(session("t7w"), message("msg_w"), query("msg_w", "x"));
-    expect(result).toEqual({ ok: true, proof: "submitted", nativeMessageId: "fake-queue-1" });
+    expect(result).toEqual({ ok: true, proof: "submitted", nativeMessageId: "fake-queue-1", running: false });
     expect(ends).toEqual([]);
   });
 
@@ -325,7 +325,7 @@ describe.skipIf(!posix)("NativeTurnAdapter · a turn", () => {
     expect(await a.inject(s, message("msg_s"), query("msg_s", "x"))).toEqual({ ok: false, uncertain: true, error: "the turn did not report a start in time" });
     expect(await a.verify(s, message("msg_s"))).toEqual({ status: "unknown", error: "turn still starting" });
     expect(a.interrupt(s.id)).toBe(true);
-    expect((await until(() => ends[0])).ok).toBe(false);
+    expect(await until(() => ends[0])).toMatchObject({ sessionId: s.id });
     expect(a.isRunning(s.id)).toBe(false);
     expect(await a.verify(s, message("msg_s"))).toEqual({ status: "absent" });
     expect(a.interrupt(s.id)).toBe(false);

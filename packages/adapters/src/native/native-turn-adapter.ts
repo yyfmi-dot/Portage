@@ -141,7 +141,8 @@ export class NativeTurnAdapter extends TranscriptAdapter {
     child.stdin!.end(compiledQuery);
 
     const outcome = await startWait;
-    if (outcome === "started") return { ok: true, proof: "submitted", nativeMessageId: session.nativeIdentity };
+    // Only a Portage-owned headless child counts as running; `codex queue` hands the turn to the IDE.
+    if (outcome === "started") return { ok: true, proof: "submitted", nativeMessageId: session.nativeIdentity, running: true };
     if (outcome === "exited") {
       const error = failure ?? (lastLine(stderr) || `${this.provider} exited before the turn started`);
       if (isActiveWriterConflict(error) && this.options.cli.queue) {
@@ -152,7 +153,7 @@ export class NativeTurnAdapter extends TranscriptAdapter {
           cwd: session.workdir,
         });
         if (queued.ok) {
-          return { ok: true, proof: "submitted", nativeMessageId: queued.queueId ?? session.nativeIdentity };
+          return { ok: true, proof: "submitted", nativeMessageId: queued.queueId ?? session.nativeIdentity, running: false };
         }
         return {
           ok: false,

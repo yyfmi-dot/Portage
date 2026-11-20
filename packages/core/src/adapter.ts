@@ -5,7 +5,7 @@ import type { AdapterCapabilityFlags, Delivery, HoldReason, Message, NativeEvent
  * Core never branches on vendor names; it reads capabilities.
  */
 export type InjectResult =
-  | { ok: true; proof: "written" | "submitted"; nativeMessageId?: string }
+  | { ok: true; proof: "written" | "submitted"; nativeMessageId?: string; /** Portage owns a live turn process until turn-end. */ running?: boolean }
   | { ok: false; error: string; retryable?: boolean; uncertain?: boolean; hold?: HoldReason; detail?: string };
 
 /**
