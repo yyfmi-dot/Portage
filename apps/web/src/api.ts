@@ -100,7 +100,7 @@ export const api = {
       `/api/conversations/${conversationId}/messages?beforeSeq=${beforeSeq}&limit=${limit}`,
     ),
   updateSession: (id: string, input: { displayName?: string; archived?: boolean }) =>
-    post<Session>(`/api/sessions/${id}`, input),
+    post<Session & { nativeRenameError?: string }>(`/api/sessions/${id}`, input),
   setCommunication: (id: string, enabled: boolean) =>
     post<{ deliveries: Delivery[] }>(`/api/sessions/${id}/communication`, { enabled }),
   markReady: (id: string) => post<{ deliveries: Delivery[] }>(`/api/sessions/${id}/ready`),

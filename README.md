@@ -34,7 +34,8 @@ Portage is a local daemon and web app that connects agent sessions you already r
 - **Rooms with real coordination rules.** Choose a wake mode per room: coordinator, open floor (swarm), @-mentions only, or manual. Budgets cap automatic rounds, agent messages per minute, concurrent seats and wake-ups per trace. A `collaboration.md` with a validated YAML policy header sets the rules.
 - **Proof, not hope.** Every delivery climbs a proof ladder: *submitted*, then *native confirmed* (read back from the session's own transcript), then *agent read* (the agent opened its inbox over MCP). When a submission's outcome is unclear, Portage marks it `uncertain` and checks it against the transcript, retrying only once it knows the message never landed.
 - **Every hop is traceable.** One causal trace links a user message, the coordinator's dispatch and each reply. You can open the exact query a recipient received, or the session's own native record.
-- **Safe around live sessions.** Each session runs one turn at a time. If a session is open in an interactive CLI or IDE, its deliveries wait as `attached` and are released once it's free. Rebinding a session pauses its queue until you confirm.
+- **Driven from Portage, safe around other clients.** Each session runs one turn at a time. A session merely open in its app, IDE or terminal doesn't block delivery; if a turn is running there, deliveries wait as `attached` until that turn ends, the way the CLI's own queue would. Rebinding a session pauses its queue until you confirm.
+- **Names stay in sync.** Renaming a session in Portage renames it in Codex (through its app server) or Claude Code (the record `/rename` writes), so their apps show the same title; a rename there shows up in Portage.
 - **Durable and fast.** Every accepted message is committed to SQLite (WAL, `synchronous=FULL`) before the API responds, and restarts recover in-flight deliveries. With 100k messages of history, accepting a message takes 3.4 ms at p95.
 - **A live office, not a log viewer.** Letters fly between desks, lamps light up for busy agents, and bubbles show who just spoke. Alongside the room there are chat and flow views, a `⌘K` command palette, and support for reduced motion. The canvas only draws while something is moving.
 
@@ -198,7 +199,7 @@ CI runs type checking, the full test suite and the web build on Node 22 and 24.
 
 v1.0. The not-yet-done items are tracked in [`docs/TESTPLAN.md`](docs/TESTPLAN.md):
 
-- Typing directly into a live interactive terminal, IDE or desktop app isn't supported yet. Such sessions hold deliveries as `attached` and receive them as a native turn once released.
+- Portage runs its turns as headless resumes of the same native session. An app or IDE that already has that session loaded keeps its own in-memory copy and shows Portage's turns only after it reloads the session; continuing there before that can fork the conversation.
 - The room's batching window (`batch_window_ms`) can be configured but isn't applied yet; each delivery is its own turn.
 - The design documents are in Chinese.
 

@@ -6,9 +6,10 @@ import { appendFileSync, readdirSync, readFileSync, writeFileSync } from "node:f
 import { join } from "node:path";
 
 const argv = process.argv.slice(2);
+const mode = process.env.FAKE_CODEX_MODE ?? "ok";
+if (argv[0] === "app-server") await appServer();
 const id = argv[argv.indexOf("resume") + 1];
 const root = join(process.env.CODEX_HOME, "sessions");
-const mode = process.env.FAKE_CODEX_MODE ?? "ok";
 const delay = Number(process.env.FAKE_CODEX_TURN_MS ?? 50);
 if (process.env.FAKE_CODEX_ARGS_LOG) appendFileSync(process.env.FAKE_CODEX_ARGS_LOG, `${JSON.stringify({ argv, cwd: process.cwd() })}\n`);
 
@@ -50,6 +51,35 @@ process.stdin.on("end", async () => {
   write({ type: "event_msg", payload: { type: "task_complete" } });
   emit({ type: "turn.completed", usage: {} });
 });
+
+// `codex app-server`: newline JSON-RPC on stdio. `thread/name/set` appends to session_index.jsonl as Codex
+// does; it answers only after `initialize`, and FAKE_CODEX_MODE=fail answers it with an error.
+async function appServer() {
+  let initialized = false;
+  let buffered = "";
+  const reply = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
+  process.stdin.on("data", (chunk) => {
+    buffered += chunk;
+    let newline;
+    while ((newline = buffered.indexOf("\n")) >= 0) {
+      const request = JSON.parse(buffered.slice(0, newline));
+      buffered = buffered.slice(newline + 1);
+      if (request.method === "initialize") {
+        initialized = true;
+        reply({ id: request.id, result: { userAgent: "fake" } });
+      } else if (request.method === "thread/name/set") {
+        if (!initialized || mode === "fail") reply({ id: request.id, error: { code: -32600, message: "thread not found" } });
+        else {
+          const entry = { id: request.params.threadId, thread_name: request.params.name, updated_at: new Date().toISOString() };
+          appendFileSync(join(process.env.CODEX_HOME, "session_index.jsonl"), `${JSON.stringify(entry)}\n`);
+          reply({ id: request.id, result: {} });
+        }
+      }
+    }
+  });
+  await new Promise((resolve) => process.stdin.on("end", resolve));
+  process.exit(0);
+}
 
 // FAKE_CODEX_REPLIES: {"<portage session id>": ["reply to turn 1", "reply to turn 2", …]} — answered the way
 // the agent would through the mounted Portage MCP server (same daemon URL and session it was given).

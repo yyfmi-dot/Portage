@@ -1,6 +1,6 @@
-import { open, readdir, stat } from "node:fs/promises";
+import { open, readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { NativeObservation } from "@portage/core";
 
 /** What a native transcript says about its session. */
@@ -38,6 +38,12 @@ export type TranscriptDialect = {
   parse(record: Record<string, any>, offset: number): NativeObservation[];
   /** The policy a record states, if it states one; the newest such record wins. */
   policyOf(record: Record<string, any>): NativeTurnPolicy | undefined;
+  /** Whether a record opens or closes a turn; the newest such record says whether one is running. */
+  turnOf(record: Record<string, any>): "open" | "closed" | undefined;
+  /** The title the session's own app or CLI shows (renamed or generated), if it has one. */
+  title(path: string, nativeSessionId: string): Promise<string | undefined>;
+  /** The file whose change can change `title`, so callers re-read it only then. */
+  titleSource(path: string): string;
 };
 
 const HEAD_BYTES = 256 * 1024;
@@ -50,6 +56,26 @@ const TITLE_CHARS = 60;
 const CODEX_INJECTED = /^(# AGENTS\.md instructions|<environment_context>|<user_instructions>|<user_shell_command>|<turn_aborted>)/;
 
 export function codexDialect(root = join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "sessions")): TranscriptDialect {
+  // Codex names threads (renamed, or titled by the app) in an append-only index beside `sessions/`.
+  const index = join(dirname(root), "session_index.jsonl");
+  let names: { mtime: number; byId: Map<string, string> } | undefined;
+  const threadNames = async () => {
+    const info = await stat(index).catch(() => undefined);
+    if (!info) return new Map<string, string>();
+    if (names?.mtime !== info.mtimeMs) {
+      const byId = new Map<string, string>();
+      for (const line of (await readFile(index, "utf8").catch(() => "")).split("\n")) {
+        try {
+          const entry = JSON.parse(line);
+          if (entry.id && typeof entry.thread_name === "string" && entry.thread_name.trim()) byId.set(String(entry.id), entry.thread_name.trim());
+        } catch {
+          // a torn last line while Codex appends
+        }
+      }
+      names = { mtime: info.mtimeMs, byId };
+    }
+    return names.byId;
+  };
   const days = async () => {
     const out: string[] = [];
     for (const year of await listDesc(root))
@@ -89,9 +115,20 @@ export function codexDialect(root = join(process.env.CODEX_HOME ?? join(homedir(
         path,
         workdir: String(meta.cwd ?? ""),
         host: originator.includes("exec") ? "headless" : originator.includes("vscode") ? "vscode_cli" : "terminal",
-        title: titleOf(firstInput?.text),
+        title: (await this.title(path, String(meta.id))) ?? titleOf(firstInput?.text),
         updatedAt: new Date(mtime).toISOString(),
       };
+    },
+    async title(_path, id) {
+      return (await threadNames()).get(id);
+    },
+    titleSource: () => index,
+    turnOf(record) {
+      if (record.type !== "event_msg") return undefined;
+      const type = record.payload?.type;
+      if (type === "task_started") return "open";
+      if (type === "task_complete" || type === "turn_aborted") return "closed";
+      return undefined;
     },
     policyOf(record) {
       if (record.type !== "turn_context") return undefined;
@@ -126,6 +163,8 @@ export function codexDialect(root = join(process.env.CODEX_HOME ?? join(homedir(
 }
 
 // ── Claude Code: ~/.claude/projects/<encoded cwd>/<id>.jsonl ──────────────────────────────────
+
+const CLAUDE_TURN_ENDS = new Set(["end_turn", "stop_sequence", "max_tokens", "refusal"]);
 
 export function claudeDialect(root = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "projects")): TranscriptDialect {
   return {
@@ -166,9 +205,35 @@ export function claudeDialect(root = join(process.env.CLAUDE_CONFIG_DIR ?? join(
         path,
         workdir: String(first.cwd),
         host: entry.includes("sdk") ? "headless" : entry.includes("vscode") ? "vscode_cli" : "terminal",
-        title: titleOf(firstInput?.text),
+        title: (await this.title(path, String(first.sessionId))) ?? titleOf(firstInput?.text),
         updatedAt: new Date(mtime).toISOString(),
       };
+    },
+    // Claude re-appends the session's title every few records; a `/rename` title outranks its generated one.
+    async title(path) {
+      let generated: string | undefined;
+      let renamed: string | undefined;
+      await scanTail(path, (record) => {
+        if (record.type === "custom-title" && typeof record.customTitle === "string" && record.customTitle.trim()) renamed = record.customTitle.trim();
+        else if (!generated && record.type === "ai-title" && typeof record.aiTitle === "string" && record.aiTitle.trim()) generated = record.aiTitle.trim();
+        return Boolean(renamed);
+      });
+      return renamed ?? generated;
+    },
+    titleSource: (path) => path,
+    turnOf(record) {
+      if (record.isSidechain || record.isMeta) return undefined;
+      if (record.type === "assistant") {
+        if (record.isApiErrorMessage) return "closed";
+        return CLAUDE_TURN_ENDS.has(record.message?.stop_reason) ? "closed" : "open";
+      }
+      if (record.type !== "user") return undefined;
+      const content = record.message?.content;
+      const text = typeof content === "string" ? content : Array.isArray(content) ? String(content.find((c: any) => c.type === "text")?.text ?? "") : "";
+      if (text.startsWith("[Request interrupted")) return "closed";
+      // local slash commands (/rename, /clear …) never reach the model
+      if (text.startsWith("<command-") || text.startsWith("<local-command")) return undefined;
+      return "open";
     },
     policyOf(record) {
       return record.type === "user" && typeof record.permissionMode === "string" ? { permissionMode: record.permissionMode } : undefined;
@@ -234,35 +299,53 @@ export async function readTranscript(
 
 /** The newest policy the transcript states (looked up from the end; falls back to the head). */
 export async function readPolicy(dialect: TranscriptDialect, path: string): Promise<NativeTurnPolicy> {
+  let policy: NativeTurnPolicy | undefined;
+  const whole = await scanTail(path, (record) => Boolean((policy = dialect.policyOf(record))));
+  if (policy) return policy;
+  if (!whole) {
+    const { records } = await readHead(path);
+    for (let i = records.length - 1; i >= 0; i -= 1) {
+      const stated = dialect.policyOf(records[i]!);
+      if (stated) return stated;
+    }
+  }
+  return {};
+}
+
+/** Whether the transcript's newest turn is still running ("open"), per its own turn records. */
+export async function turnState(dialect: TranscriptDialect, path: string): Promise<"open" | "closed" | undefined> {
+  let state: "open" | "closed" | undefined;
+  await scanTail(path, (record) => Boolean((state = dialect.turnOf(record))));
+  return state;
+}
+
+/**
+ * Visit the transcript's last records newest first until `visit` returns true. Returns whether the
+ * whole file was covered (a short file), so callers know if older records were left unread.
+ */
+async function scanTail(path: string, visit: (record: Record<string, any>) => boolean): Promise<boolean> {
   const handle = await open(path, "r");
-  let start = 0;
   try {
     const { size } = await handle.stat();
-    start = Math.max(0, size - TAIL_BYTES);
+    const start = Math.max(0, size - TAIL_BYTES);
     const buffer = Buffer.alloc(size - start);
     await handle.read(buffer, 0, buffer.length, start);
     const lines = buffer.toString("utf8").split("\n");
     if (start > 0) lines.shift();
     for (let i = lines.length - 1; i >= 0; i -= 1) {
       if (!lines[i]!.trim()) continue;
+      let record: Record<string, any>;
       try {
-        const policy = dialect.policyOf(JSON.parse(lines[i]!));
-        if (policy) return policy;
+        record = JSON.parse(lines[i]!);
       } catch {
-        // a torn last line while the CLI writes
+        continue; // a torn last line while the CLI writes
       }
+      if (visit(record)) break;
     }
+    return start === 0;
   } finally {
     await handle.close();
   }
-  if (start > 0) {
-    const { records } = await readHead(path);
-    for (let i = records.length - 1; i >= 0; i -= 1) {
-      const policy = dialect.policyOf(records[i]!);
-      if (policy) return policy;
-    }
-  }
-  return {};
 }
 
 async function readHead(path: string) {

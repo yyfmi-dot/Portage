@@ -172,6 +172,27 @@ describe("native read-back", () => {
     mode = "ok";
   });
 
+  it("follows a rename made in the session's own app; the first reading and Portage's own write-back change nothing", () => {
+    const { bus } = setup();
+    const read = (title: string, cursor: number) => bus.recordNativeRead("s_lead", "codex-native", { observations: [], cursor, source: "/a", title });
+    const name = () => bus.sessions.get("s_lead")!.displayName;
+
+    read("A title the app generated", 1);
+    expect(name()).toBe("lead");
+    expect(bus.sessions.get("s_lead")!.nativeTitle).toBe("A title the app generated");
+
+    read("Renamed in Codex", 2);
+    expect(name()).toBe("Renamed in Codex");
+    expect(bus.events.at(-1)).toMatchObject({ eventType: "SessionUpdated", entityId: "s_lead", payload: { displayName: "Renamed in Codex", source: "native" } });
+
+    bus.updateSession({ sessionId: "s_lead", displayName: "Renamed in Portage" });
+    bus.markNativeTitle("s_lead", "Renamed in Portage");
+    const events = bus.events.length;
+    read("Renamed in Portage", 3);
+    expect(name()).toBe("Renamed in Portage");
+    expect(bus.events.length).toBe(events);
+  });
+
   it("a read failure keeps the cursor and records the error", () => {
     const { bus } = setup();
     bus.recordNativeRead("s_lead", "codex-native", { observations: [], cursor: 42, source: "/a" });

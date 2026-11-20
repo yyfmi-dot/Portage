@@ -87,8 +87,20 @@ document.addEventListener("click", (event) => {
   } else if (data.directSession) selectSession(data.directSession);
   else if (data.renameSession) {
     const s = session(data.renameSession)!;
-    showNameDialog("Rename session", "Display name", s.name, "Only changes the name shown in Portage, not the session itself.", (name) =>
-      act(() => api.updateSession(s.id, { displayName: name }), "Renamed"),
+    const native = s.adapterId?.endsWith("-native");
+    showNameDialog(
+      "Rename session",
+      "Name",
+      s.name,
+      native
+        ? `Renames it in ${s.provider} too, so its app and CLI show the same title. A rename there shows up here.`
+        : "Changes the name everyone in Portage sees.",
+      (name) =>
+        act(async () => {
+          const result = await api.updateSession(s.id, { displayName: name });
+          if (result.nativeRenameError) toast(`Renamed in Portage. ${s.provider} kept its old title: ${result.nativeRenameError}`, "error");
+          else toast(native ? `Renamed here and in ${s.provider}` : "Renamed");
+        }),
     );
   } else if (data.archiveSession) {
     const s = session(data.archiveSession)!;

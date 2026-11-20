@@ -112,14 +112,21 @@ route("GET", "/api/conversations/:id/messages", ({ runtime, params, url }) => {
 route("POST", "/api/deliveries/:id/cancel", ({ runtime, params }) =>
   runtime.bus.cancelDelivery({ deliveryId: params[0]!, actorId: "user" }),
 );
-route("POST", "/api/sessions/:id", ({ runtime, params, body }) =>
-  runtime.bus.updateSession({
+route("POST", "/api/sessions/:id", async ({ runtime, params, body }) => {
+  const session = runtime.bus.updateSession({
     sessionId: params[0]!,
     displayName: body.displayName,
     alias: body.alias,
     archived: body.archived,
-  }),
-);
+  });
+  if (body.displayName === undefined) return session;
+  // The Portage name stands either way; the native title follows when its CLI can be reached.
+  const nativeRenameError = await runtime.renameNative(session.id).then(
+    () => undefined,
+    (error: unknown) => (error instanceof Error ? error.message : String(error)),
+  );
+  return { ...runtime.bus.sessions.get(session.id)!, ...(nativeRenameError ? { nativeRenameError } : {}) };
+});
 route("POST", "/api/sessions/:id/communication", async ({ runtime, params, body }) => ({
   deliveries: await runtime.bus.setCommunicationEnabled(params[0]!, Boolean(body.enabled)),
 }));

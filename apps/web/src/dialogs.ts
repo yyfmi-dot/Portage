@@ -200,7 +200,7 @@ export async function showDiscover() {
 function endpointFacts(e: DiscoveredEndpoint) {
   return [
     e.adapterId ? "can be woken automatically" : "receives through an inbox",
-    e.attached ? "open in a window" : "",
+    e.attached ? "also open elsewhere" : "",
     e.workdir ? e.workdir.split("/").slice(-2).join("/") : "",
     e.updatedAt ? `active ${timeLabel(Date.parse(e.updatedAt))}` : "",
   ].filter(Boolean);

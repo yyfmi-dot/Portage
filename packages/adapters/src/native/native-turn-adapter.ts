@@ -15,7 +15,7 @@ import type {
   VerifyResult,
 } from "@portage/core";
 import { processTable } from "../cli/process-discovery.js";
-import { readPolicy, readTranscript, type NativeTurnPolicy, type TranscriptDialect } from "./transcripts.js";
+import { readPolicy, readTranscript, turnState, type NativeTurnPolicy, type TranscriptDialect } from "./transcripts.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -28,6 +28,8 @@ export type TurnCli = {
   args(input: { nativeSessionId: string; mcp: McpLaunch; policy: NativeTurnPolicy }): string[];
   /** One line of the CLI's machine-readable stdout. */
   signal(line: Record<string, any>): { started?: true; failed?: string; done?: true } | undefined;
+  /** Rename the native session through the CLI's own mechanism, so its app and CLI show the new title. */
+  rename(input: { binary: string; nativeSessionId: string; transcript: string; title: string }): Promise<void>;
 };
 
 export type TurnEnd = { sessionId: string; ok: boolean; error?: string };
@@ -43,6 +45,11 @@ export type NativeTurnAdapterOptions = {
   startTimeoutMs?: number;
   /** A transcript written this recently by someone else means an interactive client is using it. */
   recentWriteMs?: number;
+  /**
+   * A turn left open with no live process holding the session and no write for this long was
+   * abandoned (a crashed client), not running.
+   */
+  staleTurnMs?: number;
   discoverLimit?: number;
 };
 
@@ -54,8 +61,10 @@ const INITIAL_HISTORY = 20;
  * `exec resume` / `-p --resume`): the input lands in the real native transcript, the turn runs
  * with the session's own context, and the transcript is read back as proof and as the reply.
  *
- * A session another process has open (an interactive TUI, an editor panel) is never resumed
- * concurrently — it is reported `attached` and waits.
+ * Portage is where the session is driven from. Another client merely having it open (an app or
+ * editor that loaded it days ago) does not block; a turn running there does — the delivery waits
+ * for it to finish (`attached`), as the CLI's own queue would. That client shows Portage's turns
+ * once it reloads the session.
  */
 export class NativeTurnAdapter implements SessionAdapter {
   readonly id: string;
@@ -71,6 +80,7 @@ export class NativeTurnAdapter implements SessionAdapter {
   private readonly paths = new Map<string, string>();
   /** When our own last turn on a session ended — its transcript writes are not someone else's. */
   private readonly lastTurnEnd = new Map<string, number>();
+  private readonly titles = new Map<string, { source: string; mtime: number; title?: string }>();
 
   constructor(private readonly options: NativeTurnAdapterOptions) {
     this.id = options.id;
@@ -116,9 +126,18 @@ export class NativeTurnAdapter implements SessionAdapter {
       return { ready: false, reason: "offline", detail: `working directory missing: ${session.workdir ?? "(none)"}` };
     const path = await this.transcript(session);
     if (!path) return { ready: false, reason: "offline", detail: "native session transcript not found" };
-    const holder = await this.holder(session, path);
-    if (holder) return { ready: false, reason: "attached", detail: holder };
+    const elsewhere = await this.busyElsewhere(session, path);
+    if (elsewhere) return { ready: false, reason: "attached", detail: elsewhere };
     return { ready: true };
+  }
+
+  async rename(session: Session, title: string): Promise<void> {
+    const binary = await this.options.cli.binary();
+    if (!binary) throw new Error(`${this.provider} CLI not found`);
+    const transcript = await this.transcript(session);
+    if (!transcript) throw new Error("native session transcript not found");
+    await this.options.cli.rename({ binary, nativeSessionId: session.nativeIdentity, transcript, title });
+    this.titles.delete(session.nativeIdentity);
   }
 
   async inject(session: Session, _message: Message, compiledQuery: string): Promise<InjectResult> {
@@ -212,7 +231,19 @@ export class NativeTurnAdapter implements SessionAdapter {
     if (!path) throw new Error("native session transcript not found");
     const read = await readTranscript(this.options.dialect, path, cursor);
     const observations = cursor === 0 ? lastMessages(read.observations, INITIAL_HISTORY) : read.observations;
-    return { observations, cursor: read.cursor, source: path };
+    return { observations, cursor: read.cursor, source: path, title: await this.title(session, path) };
+  }
+
+  /** The native title, re-read only when the file it lives in changed. */
+  private async title(session: Session, path: string): Promise<string | undefined> {
+    const { dialect } = this.options;
+    const source = dialect.titleSource(path);
+    const mtime = (await stat(source).catch(() => undefined))?.mtimeMs ?? 0;
+    const cached = this.titles.get(session.nativeIdentity);
+    if (cached?.source === source && cached.mtime === mtime) return cached.title;
+    const title = await dialect.title(path, session.nativeIdentity).catch(() => undefined);
+    this.titles.set(session.nativeIdentity, { source, mtime, title });
+    return title;
   }
 
   /** Stop a running Portage turn (the CLI's own interrupt first). */
@@ -234,20 +265,31 @@ export class NativeTurnAdapter implements SessionAdapter {
     return path;
   }
 
-  /** Who else is using the session: a process with the transcript open or naming it, or a fresh foreign write. */
-  private async holder(session: Session, path: string): Promise<string | undefined> {
-    const open = await this.openTranscripts([path]);
-    if (open.has(path)) return `in use by pid ${open.get(path)}`;
-    const own = this.ownPids();
-    const named = (await processTable()).find(
-      (p) => !own.has(p.pid) && p.commandLine.includes(session.nativeIdentity) && /codex|claude/i.test(p.commandLine),
-    );
-    if (named) return `in use by pid ${named.pid}`;
+  /**
+   * Another client is working in the session right now: it wrote a moment ago, or its newest turn
+   * is still open and something still holds the session (a process, or writes recent enough).
+   * Nothing written since Portage's own last turn means nothing is running elsewhere.
+   */
+  private async busyElsewhere(session: Session, path: string): Promise<string | undefined> {
     const info = await stat(path).catch(() => undefined);
-    const ownWrite = this.lastTurnEnd.get(session.id) ?? 0;
-    if (info && info.mtimeMs > ownWrite + 2000 && Date.now() - info.mtimeMs < (this.options.recentWriteMs ?? 15_000))
-      return "written moments ago by another client";
+    if (!info || info.mtimeMs <= (this.lastTurnEnd.get(session.id) ?? 0) + 2000) return undefined;
+    const quiet = Date.now() - info.mtimeMs;
+    if (quiet < (this.options.recentWriteMs ?? 15_000)) return "written moments ago by another client";
+    if ((await turnState(this.options.dialect, path)) !== "open") return undefined;
+    const holder = await this.holder(session, path);
+    if (holder) return `a turn is running in pid ${holder}`;
+    if (quiet < (this.options.staleTurnMs ?? 30 * 60_000)) return "a turn is running in another client";
     return undefined;
+  }
+
+  /** A live process other than Portage with the transcript open or naming the session. */
+  private async holder(session: Session, path: string): Promise<number | undefined> {
+    const open = await this.openTranscripts([path]);
+    if (open.has(path)) return open.get(path);
+    const own = this.ownPids();
+    return (await processTable()).find(
+      (p) => !own.has(p.pid) && !p.exiting && p.commandLine.includes(session.nativeIdentity) && /codex|claude/i.test(p.commandLine),
+    )?.pid;
   }
 
   private ownPids() {

@@ -61,7 +61,8 @@
 
 ## 当前未验证项（如实记录）
 
-- **向交互中的 PTY / IDE / App 直接注入**：未实现。会话被交互式进程占用时投递 held(`attached`)，释放后再走原生回合。
+- **已加载会话的 App 实时显示**：Portage 回合写入同一原生会话，但已加载该会话的 ChatGPT App / VS Code 扩展 / Claude 窗口持有内存副本（实测 ChatGPT App 持有 11 天前打开的记录），要重新打开才显示；它们各自内嵌 app-server，外部无法订阅。重新打开后能否完整显示 Portage 回合，尚未用真实 App 验证。
+- **改名在运行中的 App 列表里何时刷新**：Codex 改名已用真实 `codex app-server`（0.169）在隔离目录验证会同时写索引与线程库；运行中的 App 何时刷新列表未验证。
 - **合并窗口**（`batch_window_ms`）：可配置但未执行；原生回合目前每份投递一个回合，见 ARCHITECTURE §7「实现（v1.0）」。
 - **GPU 进程开销**：GPU 进程由整个浏览器共享，按进程取的 CPU 时间无法单独归到 Portage 页面，只以帧率和主线程开销为准。
 - **Claude Code 完整回合**：需要 API key，见上文。
@@ -91,8 +92,8 @@
 | `@portage/daemon`（补充） | 策略头经 HTTP 生效、非法策略头 400 且不改变已发布版本、单独调整席位与链路唤醒预算 |
 | `@portage/web`（补充） | 浏览器实测：待你处理提醒条与工位、席位与链路唤醒计量、信封粒子与派发流动线、顶部行气泡侧向弹出、推断回应虚线、对话 @ 标签 / 回复引用 / 逐接收方凭据、将唤醒预测、`⌘K` 面板模糊匹配别名、策略头实时校验与禁止发布 |
 
-| `@portage/adapters`（原生回合） | 假 `codex exec resume`（真实记录格式）驱动真实 NativeTurnAdapter：发现（标题、跳过子 agent 与 IDE 注入、markdown 链接标题）、就绪（ready / offline / 被 `tail -f` 占用 / 外部刚写入 vs 自己的回合）、提交参数（cwd、MCP、沙箱继承、无策略不覆盖）、运行中 busy、verify、增量 readNative、失败 / 崩溃 / 静默后中断；Claude 记录方言、`readPolicy`、半行记录 |
-| `@portage/core`（原生绑定） | epoch 改绑暂缓 / 确认 / 无变化不改绑 / 游标重置；取消；回读关联 exact / inferred / unknown、回合开始切断关联、去重、只由本会话回读核对 uncertain、读取错误；输入锁与顺序；跨会话并发提交且在途计入席位；回合结束带说明转 idle；`attached` 暂缓附说明、tick 放行；上下文超限丢层 / `context_too_large` 暂缓并在修订或调高上限后放行；回复产生 `agent_ack` |
+| `@portage/adapters`（原生回合） | 假 `codex exec resume`（真实记录格式）驱动真实 NativeTurnAdapter：发现（标题、跳过子 agent 与 IDE 注入、markdown 链接标题）、就绪（ready / offline / 只是被 `tail -f` 开着不阻塞、开着且回合进行中才等 / 无人持有的回合按沉默时长判为进行中或已遗弃 / 外部刚写入 vs 自己的回合）、标题（Codex 线程名最新优先、经假 app-server 改名、改名被拒报错；Claude `/rename` 优先于生成标题、改名追加记录、回合进行中 / 结束 / 中断判定）、提交参数（cwd、MCP、沙箱继承、无策略不覆盖）、运行中 busy、verify、增量 readNative、失败 / 崩溃 / 静默后中断；Claude 记录方言、`readPolicy`、半行记录 |
+| `@portage/core`（原生绑定） | epoch 改绑暂缓 / 确认 / 无变化不改绑 / 游标重置；取消；回读关联 exact / inferred / unknown、回合开始切断关联、去重、只由本会话回读核对 uncertain、读取错误；输入锁与顺序；跨会话并发提交且在途计入席位；回合结束带说明转 idle；`attached` 暂缓附说明、tick 放行；原生改名同步到 Portage、首次读取不改名、Portage 写回不回弹；上下文超限丢层 / `context_too_large` 暂缓并在修订或调高上限后放行；回复产生 `agent_ack` |
 | `@portage/core`（持久化补充） | 原生记录与游标重启后保留，再读不重复导入 |
 | `@portage/daemon`（原生房间） | 真实 runtime + 真实 NativeTurnAdapter + 假 codex：发现并登记、统筹房间完整闭环（6 条消息全部 native_confirmed、回复 ack、轮次计数）、回合失败显示原因且下一条照常提交、改绑 / 取消 / 确认、中断 |
 | `@portage/daemon`（有界快照） | 80 条历史只下发最近 50 条（`hasMore` / `fromSeq`）、`beforeSeq` 分页、未知会话与未知投递上下文 404 |

@@ -7,7 +7,7 @@ import type { Message, Session } from "@portage/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { claudeCli, codexCli } from "./clis.js";
 import { NativeTurnAdapter, type TurnEnd } from "./native-turn-adapter.js";
-import { claudeDialect, codexDialect, readPolicy, readTranscript } from "./transcripts.js";
+import { claudeDialect, codexDialect, readPolicy, readTranscript, turnState } from "./transcripts.js";
 
 const FAKE = fileURLToPath(new URL("./fixtures/fake-codex.mjs", import.meta.url));
 const posix = process.platform !== "win32";
@@ -33,8 +33,15 @@ const said = (role: "user" | "assistant", text: string) => ({
   type: "response_item",
   payload: { type: "message", role, content: [{ type: role === "user" ? "input_text" : "output_text", text }] },
 });
+const event = (type: string) => ({ type: "event_msg", payload: { type } });
 
-function adapter(overrides: { binary?: string | null; startTimeoutMs?: number } = {}) {
+/** Last written `ms` ago (negative: right now). */
+function age(path: string, ms: number) {
+  const at = new Date(Date.now() - Math.max(ms, 0));
+  utimesSync(path, at, at);
+}
+
+function adapter(overrides: { binary?: string | null; startTimeoutMs?: number; staleTurnMs?: number } = {}) {
   return new NativeTurnAdapter({
     id: "codex-native",
     dialect: codexDialect(join(home, "sessions")),
@@ -42,6 +49,7 @@ function adapter(overrides: { binary?: string | null; startTimeoutMs?: number } 
     mcp: { command: "node", args: ["/opt/portage-mcp.mjs", "--daemon", "http://127.0.0.1:1"] },
     onTurnEnd: (end) => ends.push(end),
     startTimeoutMs: overrides.startTimeoutMs ?? 5000,
+    staleTurnMs: overrides.staleTurnMs,
   });
 }
 
@@ -126,19 +134,37 @@ describe.skipIf(!posix)("NativeTurnAdapter · readiness", () => {
     expect(await adapter({ binary: null }).readiness(session("t1"))).toMatchObject({ reason: "offline", detail: "codex CLI not found" });
   });
 
-  it("reports attached while another process holds the transcript open, and ready once it lets go", async () => {
-    const path = rollout("t2", [said("user", "hi")]);
+  it("is not blocked by another app merely having the session open, but waits while a turn runs there", async () => {
+    const path = rollout("t2", [event("task_started"), said("user", "hi"), said("assistant", "hello"), event("task_complete")]);
     const holder = spawn("tail", ["-f", path], { stdio: "ignore" });
     try {
+      // loaded in an app days ago and idle there: Portage drives it
+      expect(await adapter().readiness(session("t2"))).toEqual({ ready: true });
+
+      appendFileSync(path, JSON.stringify(event("task_started")) + "\n");
+      age(path, 120_000);
       const a = adapter();
       let state = await a.readiness(session("t2"));
       for (let i = 0; i < 50 && state.ready; i += 1) state = await a.readiness(session("t2"));
-      expect(state).toEqual({ ready: false, reason: "attached", detail: `in use by pid ${holder.pid}` });
+      expect(state).toEqual({ ready: false, reason: "attached", detail: `a turn is running in pid ${holder.pid}` });
     } finally {
       holder.kill();
       await new Promise((r) => holder.once("exit", r));
     }
-    expect(await adapter().readiness(session("t2"))).toEqual({ ready: true });
+    // still open, nothing holds it, but written recently enough to be a client that does not keep files open
+    expect(await adapter().readiness(session("t2"))).toEqual({ ready: false, reason: "attached", detail: "a turn is running in another client" });
+    // open, nothing holds it, silent past the stale window: an abandoned turn, not a running one
+    expect(await adapter({ staleTurnMs: 60_000 }).readiness(session("t2"))).toEqual({ ready: true });
+  });
+
+  it("Portage's own turn left open (interrupted mid-turn) never blocks the next delivery", async () => {
+    const path = rollout("t2b", []);
+    const a = adapter();
+    await a.inject(session("t2b"), message("msg_o"), query("msg_o", "x"));
+    await until(() => ends[0]);
+    appendFileSync(path, JSON.stringify(event("task_started")) + "\n");
+    age(path, -1); // same moment as Portage's own turn end
+    expect(await a.readiness(session("t2b"))).toEqual({ ready: true });
   });
 
   it("treats a fresh write by someone else as attached, but not the session's own Portage turn", async () => {
@@ -151,6 +177,34 @@ describe.skipIf(!posix)("NativeTurnAdapter · readiness", () => {
     await a.inject(session("t4"), message("msg_a"), query("msg_a", "ping"));
     await until(() => ends[0]);
     expect(await a.readiness(session("t4"))).toEqual({ ready: true });
+  });
+});
+
+describe.skipIf(!posix)("NativeTurnAdapter · titles", () => {
+  const index = () => join(home, "session_index.jsonl");
+
+  it("reads the Codex thread name (newest wins) and renames through the app server", async () => {
+    rollout("t10", [said("user", "first thing typed")]);
+    const a = adapter();
+    expect((await a.discover()).find((e) => e.nativeSessionId === "t10")!.displayName).toBe("first thing typed");
+    expect((await a.readNative(session("t10"), 0)).title).toBeUndefined();
+
+    writeFileSync(index(), [{ id: "t10", thread_name: "Old name" }, { id: "other", thread_name: "x" }, { id: "t10", thread_name: "Named in the app" }].map((e) => JSON.stringify(e)).join("\n") + "\n");
+    age(index(), 5_000);
+    expect((await a.discover()).find((e) => e.nativeSessionId === "t10")!.displayName).toBe("Named in the app");
+    expect((await a.readNative(session("t10"), 0)).title).toBe("Named in the app");
+
+    await a.rename(session("t10"), "Renamed in Portage");
+    const last = JSON.parse(readFileSync(index(), "utf8").trim().split("\n").pop()!);
+    expect(last).toMatchObject({ id: "t10", thread_name: "Renamed in Portage" });
+    expect((await a.readNative(session("t10"), 0)).title).toBe("Renamed in Portage");
+  });
+
+  it("a rename the app server refuses is an error, not a silent no-op", async () => {
+    process.env.FAKE_CODEX_MODE = "fail";
+    rollout("t11", []);
+    await expect(adapter().rename(session("t11"), "x")).rejects.toThrow("thread not found");
+    await expect(adapter({ binary: null }).rename(session("t11"), "x")).rejects.toThrow("codex CLI not found");
   });
 });
 
@@ -266,9 +320,51 @@ describe("claudeDialect", () => {
       ["a3", "turn_failed", "API Error: 403"],
     ]);
     expect(await readPolicy(dialect, path)).toEqual({ permissionMode: "acceptEdits" });
+    expect(await turnState(dialect, path)).toBe("closed");
     expect(claudeCli.args({ nativeSessionId: "c1", mcp: { command: "node", args: ["m.mjs"] }, policy: { permissionMode: "acceptEdits" } })).toEqual(
       expect.arrayContaining(["--resume", "c1", "--permission-mode", "acceptEdits", "--allowedTools", "mcp__portage"]),
     );
+  });
+
+  it("knows whether a turn is running: open through tool calls, closed at a final stop or an interrupt", async () => {
+    const root = mkdtempSync(join(tmpdir(), "portage-claude-"));
+    mkdirSync(join(root, "-tmp-w"));
+    const path = join(root, "-tmp-w", "c2.jsonl");
+    const base = { sessionId: "c2", cwd: "/tmp/w", timestamp: "2026-11-18T10:00:00Z" };
+    const dialect = claudeDialect(root);
+    const add = (record: Record<string, unknown>) => appendFileSync(path, JSON.stringify({ ...base, ...record }) + "\n");
+    add({ type: "user", message: { content: "看看测试" } });
+    expect(await turnState(dialect, path)).toBe("open");
+    add({ type: "assistant", message: { stop_reason: "tool_use", content: [{ type: "tool_use" }] } });
+    add({ type: "user", message: { content: [{ type: "tool_result" }] } });
+    add({ type: "last-prompt", lastPrompt: "看看测试" });
+    expect(await turnState(dialect, path)).toBe("open");
+    add({ type: "assistant", message: { stop_reason: "end_turn", content: [{ type: "text", text: "都过了" }] } });
+    add({ type: "user", message: { content: "<command-name>/rename</command-name>" } });
+    expect(await turnState(dialect, path)).toBe("closed");
+    add({ type: "user", message: { content: "再跑一次" } });
+    add({ type: "user", message: { content: [{ type: "text", text: "[Request interrupted by user]" }] } });
+    expect(await turnState(dialect, path)).toBe("closed");
+  });
+
+  it("titles: a /rename outranks the generated title; renaming appends the record Claude's /rename writes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "portage-claude-"));
+    mkdirSync(join(root, "-tmp-w"));
+    const path = join(root, "-tmp-w", "c3.jsonl");
+    const base = { sessionId: "c3", cwd: "/tmp/w", timestamp: "2026-11-18T10:00:00Z" };
+    writeFileSync(path, JSON.stringify({ ...base, type: "user", message: { content: "帮我看下日志" } }) + "\n");
+    const dialect = claudeDialect(root);
+    expect((await dialect.describe(path))!.title).toBe("帮我看下日志");
+    appendFileSync(path, JSON.stringify({ type: "ai-title", aiTitle: "Log triage", sessionId: "c3" }) + "\n");
+    expect(await dialect.title(path, "c3")).toBe("Log triage");
+    appendFileSync(path, JSON.stringify({ type: "custom-title", customTitle: "日志排查", sessionId: "c3" }) + "\n");
+    appendFileSync(path, JSON.stringify({ type: "ai-title", aiTitle: "Log triage", sessionId: "c3" }) + "\n");
+    expect(await dialect.title(path, "c3")).toBe("日志排查");
+    expect((await dialect.describe(path))!.title).toBe("日志排查");
+
+    await claudeCli.rename({ binary: "claude", nativeSessionId: "c3", transcript: path, title: "Portage 改的名" });
+    expect(JSON.parse(readFileSync(path, "utf8").trim().split("\n").pop()!)).toEqual({ type: "custom-title", customTitle: "Portage 改的名", sessionId: "c3" });
+    expect(await dialect.title(path, "c3")).toBe("Portage 改的名");
   });
 });
 

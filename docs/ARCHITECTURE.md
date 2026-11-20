@@ -1,6 +1,6 @@
 ﻿# Portage 架构设计方案 v1.0
 
-更新于 2026-11-18。本方案为第一版冻结架构，与 PRODUCT / DOMAIN / UX / MVP 及 HTML 原型对齐。覆盖跨来源会话、房间协作和个人到团队的演进。默认参数是可调建议，§10 附实测数据。当前实现：TypeScript 单体 Daemon（MemoryBus + SQLite 快照 + EventLog/SSE）、Codex / Claude Code 原生回合适配器（会话记录发现、headless resume 提交、原生记录回读与关联）、CLI 进程发现与 FileInbox 注入、MCP 桥接（agent 读取并产生 `agent_ack`、回复沿用 trace、报告忙闲）、正式 Web UI；向交互中的 PTY / IDE / App 直接注入待实现（占用时 held 等待释放）。
+更新于 2026-11-18。本方案为第一版冻结架构，与 PRODUCT / DOMAIN / UX / MVP 及 HTML 原型对齐。覆盖跨来源会话、房间协作和个人到团队的演进。默认参数是可调建议，§10 附实测数据。当前实现：TypeScript 单体 Daemon（MemoryBus + SQLite 快照 + EventLog/SSE）、Codex / Claude Code 原生回合适配器（会话记录发现、headless resume 提交、原生记录回读与关联）、CLI 进程发现与 FileInbox 注入、MCP 桥接（agent 读取并产生 `agent_ack`、回复沿用 trace、报告忙闲）、正式 Web UI、会话标题双向同步；别的客户端正在跑回合时 held 等回合结束，只是开着不阻塞。
 
 图中方括号代表对象或模块，`→` 表示有方向的连接，`↔` 表示双向通信，分叉表示独立去向。箭头旁标注传递的内容或触发条件；部署在同一进程内的模块也保持这些接口边界。
 
@@ -243,7 +243,8 @@ Adapter 提供写入字节、提交输入、原生消息确认等分层凭据。
 | 环节 | 当前行为 |
 | --- | --- |
 | 发现 | 读取 Codex `~/.codex/sessions` 与 Claude Code `~/.claude/projects` 的会话记录：原生 ID、工作目录、最近活跃、首条真实用户输入作标题；跳过子 agent 线程与 IDE 注入上下文 |
-| 就绪 | 提交前检查：会话记录被交互式进程打开（Linux 读 `/proc/<pid>/fd`，macOS 用 lsof）或刚被别人写入 → held(`attached`，附占用者)；CLI 不可用 → held(`offline`)；后台 tick 重新检查 |
+| 就绪 | Portage 是驱动会话的一方：别的客户端只是开着会话（App 加载后长期持有记录文件）不阻塞。提交前检查：记录 15 秒内被别人写入，或最新回合未结束（Codex `task_started` 无 `task_complete` / `turn_aborted`；Claude 最后一条为提问、工具结果或 `stop_reason: tool_use`）且有进程持有（Linux 读 `/proc/<pid>/fd`，macOS 用 lsof；或命令行带会话 id）或 30 分钟内写过 → held(`attached`，附说明)，与 CLI 自己的排队语义一致；Portage 自己回合留下的未结束记录不算；CLI 不可用 → held(`offline`)；后台 tick 重新检查 |
+| 标题 | 双向同步。读：Codex 取 `session_index.jsonl` 中该线程最新的 `thread_name`，Claude 取记录尾部最新的 `custom-title`（优先）或 `ai-title`，都没有时取首句。写：Codex 经短时 `codex app-server` 调 `thread/name/set`（同时更新索引与它的线程库），Claude 追加与 `/rename` 相同的 `custom-title` 记录。Session 记 `nativeTitle`：读到的标题与之不同即视为在原生端改名并同步到 Portage；首次读取只记录不改名 |
 | 提交 | 以该会话身份恢复一次 headless 回合，query 走 stdin；临时挂 Portage MCP 供回复；继承会话最近的沙箱 / 网络 / 权限设置。同一会话一把输入锁，不同会话并行，在途回合计入活动席位 |
 | 凭据 | 进程启动 = `submitted`；回读到带消息标记的输入 = `native_confirmed`（同时核对 `uncertain`）；agent 经 MCP 读取或回复 = `agent_ack` |
 | 回读 | 回合结束后按游标增量读取：输入 / 输出 / 回合边界存为 NativeEvent，关联 exact（消息标记）/ inferred（同回合输出）/ unknown；读取失败保存在同步游标上，UI 显示回读缺口 |

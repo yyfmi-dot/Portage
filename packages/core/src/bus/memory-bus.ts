@@ -634,7 +634,33 @@ export class MemoryBus implements PortageBusApi {
       cursor: read.cursor,
       lastSuccessAt: this.now(),
     });
+    if (read.title) this.observeNativeTitle(sessionId, read.title);
     return added;
+  }
+
+  /**
+   * The native title changed since Portage last saw or wrote it: the session was renamed in its own
+   * app or CLI, so Portage follows. The first reading only records it, never overriding a name.
+   */
+  private observeNativeTitle(sessionId: string, title: string) {
+    const session = this.requireSession(sessionId);
+    const name = title.trim();
+    if (!name || name === session.nativeTitle) return;
+    const seenBefore = session.nativeTitle !== undefined;
+    session.nativeTitle = name;
+    if (!seenBefore || name === session.displayName) return;
+    session.displayName = name;
+    this.emit({
+      eventType: "SessionUpdated",
+      entityId: session.id,
+      actorId: this.participantForSession(session.id).id,
+      payload: { displayName: name, alias: session.alias, archived: Boolean(session.archivedAt), source: "native" },
+    });
+  }
+
+  /** Portage wrote this title to the native session; reading it back is not a rename there. */
+  markNativeTitle(sessionId: string, title: string) {
+    this.requireSession(sessionId).nativeTitle = title;
   }
 
   /** Record that reading the native transcript failed; the cursor stays where it was. */

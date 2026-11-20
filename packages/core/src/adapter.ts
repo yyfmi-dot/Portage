@@ -31,6 +31,8 @@ export type NativeReadResult = {
   observations: NativeObservation[];
   cursor: number;
   source: string;
+  /** The session's own current title (renamed in its app or by its CLI), when the adapter can read it. */
+  title?: string;
 };
 
 export type DiscoveredEndpoint = {
@@ -63,4 +65,7 @@ export interface SessionAdapter {
 
   /** Read native transcript records after `cursor` (0 = adapter decides how much history to import). */
   readNative?(session: Session, cursor: number): Promise<NativeReadResult>;
+
+  /** Give the native session this title, the way its own app or CLI renames it. */
+  rename?(session: Session, title: string): Promise<void>;
 }

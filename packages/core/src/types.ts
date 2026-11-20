@@ -54,6 +54,8 @@ export type Session = {
   workdir?: string;
   /** Binding generation: bumped when the session is re-bound to another native identity or adapter. */
   bindingEpoch?: number;
+  /** The native session's title as Portage last read or wrote it; a different reading means it was renamed there. */
+  nativeTitle?: string;
 };
 
 export type AdapterCapabilityFlags = {

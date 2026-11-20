@@ -349,7 +349,12 @@ export function describeEvent(e: BusEvent, m: Model, s: Snapshot): VEvent | null
     case "SessionRegistered":
       return { ...base, sessionId: e.entityId, description: `Added ${nameOf(e.entityId)} · ${providerLabel(String(p.provider))} / ${hostLabel(String(p.host))}`, status: "Added" };
     case "SessionUpdated":
-      return { ...base, sessionId: e.entityId, description: `${nameOf(e.entityId)} · name or settings updated`, status: "Logged" };
+      return {
+        ...base,
+        sessionId: e.entityId,
+        description: p.source === "native" ? `Renamed in its own app to “${p.displayName}”` : `${nameOf(e.entityId)} · name or settings updated`,
+        status: "Logged",
+      };
     case "RoomCreated":
       return { ...base, description: `New room “${p.title}”`, status: "Logged" };
     case "RoomRenamed":

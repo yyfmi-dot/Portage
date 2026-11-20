@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -200,6 +200,34 @@ describe.skipIf(process.platform === "win32")("daemon · native Codex room", () 
     expect(native.events.filter((e: Json) => e.correlation === "exact").map((e: Json) => e.correlatedMessageId)).toContain(queued.json.message.id);
     expect(native.events.some((e: Json) => e.text.includes("撤回这条"))).toBe(false);
   });
+
+  it("keeps the session name in sync with Codex both ways", async () => {
+    const index = join(codexHome, "session_index.jsonl");
+    const lastEntry = () => JSON.parse(readFileSync(index, "utf8").trim().split("\n").pop()!);
+    const renamed = await post("/api/sessions/s_codex_th-reviewer", { displayName: "评审员" });
+    expect(renamed.status).toBe(200);
+    expect(renamed.json).toMatchObject({ displayName: "评审员", nativeTitle: "评审员" });
+    expect(renamed.json.nativeRenameError).toBeUndefined();
+    expect(lastEntry()).toMatchObject({ id: "th-reviewer", thread_name: "评审员" });
+
+    // renamed in the Codex app: Portage follows on its next sync
+    appendFileSync(index, `${JSON.stringify({ id: "th-reviewer", thread_name: "Codex 里改的名", updated_at: new Date().toISOString() })}\n`);
+    const deadline = Date.now() + 12_000;
+    let snap = await get("/api/snapshot");
+    while (snap.sessions.find((s: Json) => s.id === "s_codex_th-reviewer").displayName !== "Codex 里改的名" && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200));
+      snap = await get("/api/snapshot");
+    }
+    expect(snap.sessions.find((s: Json) => s.id === "s_codex_th-reviewer").displayName).toBe("Codex 里改的名");
+    expect(snap.events.some((e: Json) => e.eventType === "SessionUpdated" && e.entityId === "s_codex_th-reviewer" && e.payload.source === "native")).toBe(true);
+
+    // Codex unreachable: the Portage name stands, and the response says why Codex kept its title
+    process.env.FAKE_CODEX_MODE = "fail";
+    const refused = await post("/api/sessions/s_codex_th-reviewer", { displayName: "只在 Portage" });
+    delete process.env.FAKE_CODEX_MODE;
+    expect(refused.json).toMatchObject({ displayName: "只在 Portage", nativeTitle: "Codex 里改的名", nativeRenameError: "thread not found" });
+    expect(lastEntry().thread_name).toBe("Codex 里改的名");
+  }, 20_000);
 
   it("interrupt stops a running Portage turn", async () => {
     process.env.FAKE_CODEX_MODE = "silent";

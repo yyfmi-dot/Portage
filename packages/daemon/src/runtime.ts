@@ -32,6 +32,8 @@ export type DaemonRuntime = {
   tick: () => Promise<boolean>;
   /** Read new native transcript records of one session into the bus. */
   syncNative: (sessionId: string) => Promise<void>;
+  /** Give the native session its Portage name through its own CLI, so its app shows the same title. */
+  renameNative: (sessionId: string) => Promise<void>;
   /** Stop a running Portage turn on a native session. */
   interrupt: (sessionId: string) => boolean;
   refreshDiscovery: () => Promise<DiscoveredEndpoint[]>;
@@ -118,11 +120,20 @@ export function createRuntime(options: RuntimeOptions = {}): DaemonRuntime {
   const tick = async () => {
     let changed = await bus.tick();
     for (const session of nativeSessions()) {
-      const before = bus.nativeCheckpoints.get(session.id)?.cursor;
+      const state = () => `${bus.nativeCheckpoints.get(session.id)?.cursor}|${session.nativeTitle}|${session.displayName}`;
+      const before = state();
       await syncNative(session.id);
-      if (bus.nativeCheckpoints.get(session.id)?.cursor !== before) changed = true;
+      if (state() !== before) changed = true;
     }
     return changed;
+  };
+
+  const renameNative = async (sessionId: string) => {
+    const session = bus.sessions.get(sessionId);
+    const adapter = session && adapterFor(session);
+    if (!session || !adapter?.rename || session.nativeTitle === session.displayName) return;
+    await adapter.rename(session, session.displayName);
+    bus.markNativeTitle(session.id, session.displayName);
   };
 
   const refreshDiscovery = async () => {
@@ -135,7 +146,7 @@ export function createRuntime(options: RuntimeOptions = {}): DaemonRuntime {
 
   const interrupt = (sessionId: string) => native.some((a) => a.interrupt(sessionId));
 
-  runtime = { bus, inbox, native, store, persist, tick, syncNative, interrupt, refreshDiscovery, paths };
+  runtime = { bus, inbox, native, store, persist, tick, syncNative, renameNative, interrupt, refreshDiscovery, paths };
 
   // A turn that was running when the daemon stopped is not ours anymore; readiness sees whoever holds it.
   for (const session of nativeSessions()) {
