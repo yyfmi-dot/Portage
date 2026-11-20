@@ -30,7 +30,8 @@ Portage 是一个本地 Daemon 加 Web 界面，统一管理原生 agent 会话�
 ## 功能特性
 
 - **直接用已有会话**：从 Codex、Claude Code 自己的会话记录发现会话，也能发现正在运行的 CLI 进程；登记即可，不用重建。
-- **原生唤醒**：投递即以该会话身份恢复一次 headless 回合（`codex exec resume` / `claude -p --resume`），继承会话的沙箱与权限设置，并临时挂上 Portage MCP 让 agent 回复，不改你的配置。
+- **原生唤醒**：投递即以该会话身份恢复一次 headless 回合（`codex exec resume` / `claude -p --resume`），继承会话的沙箱与权限设置，并临时挂上 Portage MCP 让 agent 回复，不改你的配置。私聊注入很短（`[Original message · …]` + 正文）；房间消息才叠加精简规则层。
+- **产物不塞进 prompt**：出站只带 artifact 收据；agent 经 MCP `portage_artifact_get` / `portage_artifact_put` 读写，并用 `portage_send.artifactIds` 挂回。
 - **房间协作规则**：统筹 / Swarm / 仅 @ / 手动四种唤醒模式；自动轮次、每分钟消息、活跃席位、单链路唤醒四项预算；`collaboration.md` 的 YAML 策略头经校验后执行。
 - **凭据而非猜测**：每份投递沿「已提交 → 原生记录已确认（从会话记录回读）→ agent 已读（经 MCP 读取）」逐级确认；结果不明的提交标为 `uncertain`，回读核对后才安全重试。
 - **每一跳可追踪**：用户消息、统筹派发、成员回复串在同一条因果链上；可以打开任一接收方实际收到的 query，或该会话自己的原生记录。
