@@ -1,6 +1,6 @@
 ﻿# Portage 架构设计方案 v1.0
 
-更新于 2026-11-18。本方案为第一版冻结架构，与 PRODUCT / DOMAIN / UX / MVP 及 HTML 原型对齐。覆盖跨来源会话、房间协作和个人到团队的演进。默认参数是可调建议，§10 附实测数据。当前实现：TypeScript 单体 Daemon（MemoryBus + SQLite 快照 + EventLog/SSE）、Codex / Claude Code 原生回合适配器（会话记录发现、headless resume 提交、原生记录回读与关联）、CLI 进程发现与 FileInbox 注入、MCP 桥接（agent 读取并产生 `agent_ack`、回复沿用 trace、报告忙闲）、正式 Web UI、会话标题双向同步；别的客户端正在跑回合时 held 等回合结束，只是开着不阻塞。
+更新于 2026-11-20。本方案为第一版冻结架构，与 PRODUCT / DOMAIN / UX / MVP 及 HTML 原型对齐。覆盖跨来源会话、房间协作和个人到团队的演进。默认参数是可调建议，§10 附实测数据。当前实现：TypeScript 单体 Daemon（MemoryBus + SQLite 快照 + EventLog/SSE）、Codex / Claude Code 原生回合适配器（会话记录发现、headless resume 提交、原生记录回读与关联）、CLI 进程发现与 FileInbox 注入、MCP 桥接（agent 读取并产生 `agent_ack`、回复沿用 trace、报告忙闲）、正式 Web UI、会话标题双向同步；别的客户端正在跑回合时 held 等回合结束，只是开着不阻塞。
 
 图中方括号代表对象或模块，`→` 表示有方向的连接，`↔` 表示双向通信，分叉表示独立去向。箭头旁标注传递的内容或触发条件；部署在同一进程内的模块也保持这些接口边界。
 
@@ -178,7 +178,7 @@ Messaging 调用身份、成员与策略服务完成检查；通过后才进入�
 | context | 编译适用 MD、授权引用与原始消息，保存输入快照 |
 | messaging | 幂等接收、目标解析、逐接收方 Delivery |
 | delivery | 排队、ready 门控、公平调度、租约、重试、不确定结果 |
-| artifacts | 流式内容存储、hash、版本、访问及目标端材料化 |
+| artifacts | 对象库（hash / 版本 / 访问）；出站收据 + MCP get；入站 MCP put；不默认整包写入工程目录 |
 | store | 事务、索引、持久队列、事件、outbox 与原生事件去重 |
 | projections | session 列表、历史、trace、状态、统计与增量订阅 |
 | adapters | 各产品宿主的发现、读取、输入、生命周期及凭据 |
@@ -243,9 +243,9 @@ Adapter 提供写入字节、提交输入、原生消息确认等分层凭据。
 | 环节 | 当前行为 |
 | --- | --- |
 | 发现 | 读取 Codex `~/.codex/sessions` 与 Claude Code `~/.claude/projects` 的会话记录：原生 ID、工作目录、最近活跃、首条真实用户输入作标题；跳过子 agent 线程与 IDE 注入上下文 |
-| 就绪 | Portage 是驱动会话的一方：别的客户端只是开着会话（App 加载后长期持有记录文件）不阻塞。提交前检查：记录 15 秒内被别人写入，或最新回合未结束（Codex `task_started` 无 `task_complete` / `turn_aborted`；Claude 最后一条为提问、工具结果或 `stop_reason: tool_use`）且有进程持有（Linux 读 `/proc/<pid>/fd`，macOS 用 lsof；或命令行带会话 id）或 30 分钟内写过 → held(`attached`，附说明)，与 CLI 自己的排队语义一致；Portage 自己回合留下的未结束记录不算；CLI 不可用 → held(`offline`)；后台 tick 重新检查 |
+| 就绪 | **Portage-first**：用户从 Portage 发送时，应由 Portage 取得本回合写权并驱动会话，而不是把「IDE / App 开着」默认打成 Failed。当前：别的客户端只是开着会话不阻塞；提交前若记录 15 秒内被别人写入，或最新回合未结束且有进程持有 / 30 分钟内写过 → held(`attached`)；**Codex `active writer` 同样 held(`attached`)，tick 重试，禁止 Failed**。Portage 自己回合不算；CLI 不可用 → held(`offline`)。目标（待验证）：经同一 app-server 投递或 claim 写权 |
 | 标题 | 双向同步。读：Codex 取 `session_index.jsonl` 中该线程最新的 `thread_name`，Claude 取记录尾部最新的 `custom-title`（优先）或 `ai-title`，都没有时取首句。写：Codex 经短时 `codex app-server` 调 `thread/name/set`（同时更新索引与它的线程库），Claude 追加与 `/rename` 相同的 `custom-title` 记录。Session 记 `nativeTitle`：读到的标题与之不同即视为在原生端改名并同步到 Portage；首次读取只记录不改名 |
-| 提交 | 以该会话身份恢复一次 headless 回合，query 走 stdin；临时挂 Portage MCP 供回复；继承会话最近的沙箱 / 网络 / 权限设置。同一会话一把输入锁，不同会话并行，在途回合计入活动席位 |
+| 提交 | 以该会话身份恢复一次 headless 回合，query 走 stdin；临时挂 Portage MCP 供回复与产物交接；继承会话最近的沙箱 / 网络 / 权限设置。同一会话一把输入锁，不同会话并行，在途回合计入活动席位 |
 | 凭据 | 进程启动 = `submitted`；回读到带消息标记的输入 = `native_confirmed`（同时核对 `uncertain`）；agent 经 MCP 读取或回复 = `agent_ack` |
 | 回读 | 回合结束后按游标增量读取：输入 / 输出 / 回合边界存为 NativeEvent，关联 exact（消息标记）/ inferred（同回合输出）/ unknown；读取失败保存在同步游标上，UI 显示回读缺口 |
 | 失败与控制 | 回合失败原因写入会话状态并在 UI 显示；可中断运行中的回合；改绑原生身份后 epoch +1，排队项 held(`identity_changed`)，确认后放行 |
@@ -463,6 +463,32 @@ Message.parts 支持 text、markdown、image、audio、video、json、artifact_r
 本地路径作为来源信息。跨设备通过 artifact ID 下载并材料化为目标可读文件。文本 CLI 可以接收文件引用，原生附件入口可接收二进制内容，转换结果随 Delivery 保存。
 
 同一 session 参加多个房间时，各次注入附带 room / thread。原生宿主仍管理该 session 的上下文。需要独立上下文时创建独立原生 session，再分别加入房间。
+
+### 8.1 附件与产物交接（实现）
+
+**原则：** Artifact 对象库是唯一真相。Message 只挂 `artifact_ref`。Agent 侧先看到收据，按需拉取；交回产物必须显式 put，再随 `portage_send` 引用。
+
+| 方向 | 行为 |
+| --- | --- |
+| 出站 Portage → agent | ContextCompiler 写入 Artifacts 层：`artifactId` / 名 / 版本 / 大小 / mime / hash，并提示调用 `portage_artifact_get`。**不再**把 `storageKey` 写进 prompt |
+| 出站按需读 | MCP `portage_artifact_get`：会话仅能读自己创建的，或出现在其 DM / 活动房间消息上的 artifact。小文件返回 `contentBase64`；大文件或指定 `writeTo` 时写到 `workdir` 下相对路径（默认 `.portage/cache/<id>/<name>`）并返回 path |
+| 入站 agent → Portage | MCP `portage_artifact_put`（workdir 相对路径或 `contentBase64`+name）→ 入库（`sourceSessionId`）→ 返回 `artifactId`；`portage_send.artifactIds` 挂到消息上，UI 用现有 artifact 管道展示 |
+| 范围 | **做** Portage 上传与 agent 工作产物回流。**不做** 用户在 Codex / Claude 原生 UI 里点的上传同步进 Portage（宿主行为；若以后要镜像另开议题） |
+
+```text
+[UI 上传] → [Artifact 对象库] → [Message.artifact_ref]
+                                      │
+                                      ▼
+                         [Compiler：收据清单 · 无 storageKey]
+                                      │
+                                      ▼
+                         [Agent：portage_artifact_get 按需]
+                                      │
+                         [Agent：portage_artifact_put → artifactId]
+                                      │
+                                      ▼
+                         [portage_send + artifactIds] → [UI 展示]
+```
 
 ## 9. 持久性与故障恢复
 

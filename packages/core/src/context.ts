@@ -98,9 +98,14 @@ export function compileContext(input: ContextCompileInput): ContextSnapshot {
     layers.push({
       label: L.artifacts,
       droppable: false,
-      text: `[${L.artifacts}]\n${input.artifacts
-        .map((a) => `${a.originalName} · v${a.version} · ${a.byteSize} bytes · ${a.storageKey}`)
-        .join("\n")}`,
+      text: [
+        `[${L.artifacts}]`,
+        "These are Portage artifact receipts. Call portage_artifact_get with artifactId when you need the bytes.",
+        ...input.artifacts.map(
+          (a) =>
+            `- artifactId=${a.id} · ${a.originalName} · v${a.version} · ${a.byteSize} bytes · ${a.mime} · hash=${a.hash}`,
+        ),
+      ].join("\n"),
     });
   }
 
@@ -108,7 +113,7 @@ export function compileContext(input: ContextCompileInput): ContextSnapshot {
     layers.push({
       label: L.reply,
       droppable: false,
-      text: `[${L.reply}]\nReply with portage_send (replyToMessageId=${input.message.id}). To hand work to someone, @alias them in the text. If no reply is needed, you can skip it.\nYou can end your turn once it is sent: replies reach you from Portage as new messages, so there is no need to wait or poll your inbox.`,
+      text: `[${L.reply}]\nReply with portage_send (replyToMessageId=${input.message.id}). To attach work products, call portage_artifact_put then pass the returned artifactIds to portage_send. To hand work to someone, @alias them in the text. If no reply is needed, you can skip it.\nYou can end your turn once it is sent: replies reach you from Portage as new messages, so there is no need to wait or poll your inbox.`,
     });
   }
 

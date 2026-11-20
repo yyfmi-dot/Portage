@@ -6,7 +6,7 @@ import type { AdapterCapabilityFlags, Delivery, HoldReason, Message, NativeEvent
  */
 export type InjectResult =
   | { ok: true; proof: "written" | "submitted"; nativeMessageId?: string }
-  | { ok: false; error: string; retryable?: boolean; uncertain?: boolean };
+  | { ok: false; error: string; retryable?: boolean; uncertain?: boolean; hold?: HoldReason; detail?: string };
 
 /**
  * Read-back of one submission whose outcome is unknown.

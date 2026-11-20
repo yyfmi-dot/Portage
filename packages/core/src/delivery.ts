@@ -14,7 +14,7 @@ export type DeliveryTransition =
 const ALLOWED: Record<DeliveryState, DeliveryTransition["type"][]> = {
   queued: ["hold", "lease", "cancel"],
   held: ["release", "cancel"],
-  dispatching: ["submitted", "fail", "uncertain", "retry"],
+  dispatching: ["submitted", "fail", "uncertain", "retry", "hold"],
   submitted: [],
   failed: [],
   uncertain: ["confirm", "retry", "fail"],

@@ -72,6 +72,8 @@ describe("MCP bridge over stdio (real MCP client â†’ real portage-mcp process â†
     const client = await connect(["--session", "s_lead"]);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "portage_artifact_get",
+      "portage_artifact_put",
       "portage_inbox",
       "portage_room",
       "portage_send",

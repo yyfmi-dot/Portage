@@ -299,6 +299,17 @@ describe.skipIf(!posix)("NativeTurnAdapter · a turn", () => {
     expect(result).toEqual({ ok: false, retryable: false, error: "Error: thread/resume failed: no rollout found for thread id t7" });
   });
 
+  it("an active writer conflict holds the delivery instead of failing hard", async () => {
+    process.env.FAKE_CODEX_MODE = "writer";
+    rollout("t7w", []);
+    const result = await adapter().inject(session("t7w"), message("msg_w"), query("msg_w", "x"));
+    expect(result).toMatchObject({
+      ok: false,
+      hold: "attached",
+      error: expect.stringContaining("active writer"),
+    });
+  });
+
   it("a silent turn is uncertain, can be interrupted, and then verifies absent", async () => {
     process.env.FAKE_CODEX_MODE = "silent";
     rollout("t8", []);

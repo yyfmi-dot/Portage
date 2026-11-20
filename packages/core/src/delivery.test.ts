@@ -53,6 +53,15 @@ describe("applyDeliveryTransition", () => {
     expect(r.ok && r.delivery.state).toBe("submitted");
   });
 
+  it("dispatching can hold when the native writer is busy", () => {
+    const r = applyDeliveryTransition(delivery("dispatching"), {
+      type: "hold",
+      reason: "attached",
+      detail: "active writer",
+    });
+    expect(r).toMatchObject({ ok: true, delivery: { state: "held", reason: "attached", detail: "active writer" } });
+  });
+
   it("left_room cancel path from queued", () => {
     const r = applyDeliveryTransition(delivery(), { type: "cancel" });
     expect(r.ok && r.delivery.state).toBe("cancelled");

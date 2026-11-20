@@ -313,6 +313,24 @@ describe("adapter readiness", () => {
     expect(injected).toHaveLength(1);
   });
 
+  it("an inject that reports hold(attached) parks the delivery instead of failing", async () => {
+    const { bus, dm } = setup({
+      inject: async () => ({
+        ok: false,
+        hold: "attached",
+        detail: "another client holds this thread's writer",
+        error: "active writer",
+      }),
+    });
+    const sent = await dm("s_builder", "hi", "hold1");
+    const id = sent.deliveries[0]!.id;
+    expect(bus.deliveries.find((d) => d.id === id)).toMatchObject({
+      state: "held",
+      reason: "attached",
+      detail: "another client holds this thread's writer",
+    });
+  });
+
   it("a busy adapter keeps the delivery queued in order instead of holding it", async () => {
     const { dm, state } = setup({ readiness: () => ({ ready: false, reason: "busy" }) });
     const id = (await dm("s_lead", "排队", "b1")).deliveries[0]!.id;

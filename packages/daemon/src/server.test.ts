@@ -181,7 +181,9 @@ describe("daemon HTTP API L4 closed loop", () => {
     });
     const snap = await snapshot();
     const fileContext = await fetch(`${base}/api/deliveries/${withFile.json.deliveries[0].id}/context`).then((r) => r.json() as Promise<Json>);
+    expect(fileContext.query).toContain(`artifactId=${artifact.json.id}`);
     expect(fileContext.query).toContain("review.md · v1 · 8 bytes");
+    expect(fileContext.query).toContain("portage_artifact_get");
 
     const dm = await post("/api/sessions/s_reviewer/direct");
     expect(dm.json.kind).toBe("direct");
@@ -195,6 +197,25 @@ describe("daemon HTTP API L4 closed loop", () => {
     const text = latestInboxText(reviewer.provider, reviewer.nativeIdentity);
     expect(text).toContain("私聊审查");
     expect(text).not.toContain("collaboration.md");
+
+    const got = await post("/api/agent/s_builder/artifacts/get", { artifactId: artifact.json.id });
+    expect(got.status).toBe(200);
+    expect(Buffer.from(got.json.contentBase64, "base64").toString("utf8")).toBe("# review");
+    const put = await post("/api/agent/s_builder/artifacts/put", {
+      name: "result.txt",
+      contentBase64: Buffer.from("built").toString("base64"),
+      conversationId: "room_dev",
+    });
+    expect(put.status).toBe(200);
+    expect(put.json.name).toBe("result.txt");
+    const attached = await post("/api/agent/s_builder/send", {
+      text: "done",
+      artifactIds: [put.json.artifactId],
+      roomId: "room_dev",
+    });
+    expect(attached.status).toBe(200);
+    const sent = attached.json.message;
+    expect(sent.parts.some((p: { kind: string; artifactId?: string }) => p.kind === "artifact_ref" && p.artifactId === put.json.artifactId)).toBe(true);
   });
 
   it("renames a room without touching its members or history", async () => {

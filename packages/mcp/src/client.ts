@@ -51,8 +51,14 @@ export class PortageClient {
   async inbox(limit?: number) {
     return this.http<InboxView>("POST", `/api/agent/${await this.session()}/inbox`, { limit });
   }
-  async send(input: { text: string; to?: string[]; roomId?: string; replyToMessageId?: string }) {
+  async send(input: { text: string; to?: string[]; roomId?: string; replyToMessageId?: string; artifactIds?: string[] }) {
     return this.http<SendView>("POST", `/api/agent/${await this.session()}/send`, input);
+  }
+  async artifactGet(input: { artifactId: string; writeTo?: string }) {
+    return this.http<ArtifactGetView>("POST", `/api/agent/${await this.session()}/artifacts/get`, input);
+  }
+  async artifactPut(input: { path?: string; contentBase64?: string; name?: string; mime?: string; conversationId?: string }) {
+    return this.http<ArtifactPutView>("POST", `/api/agent/${await this.session()}/artifacts/put`, input);
   }
   async status(execution: "idle" | "running" | "waiting_human") {
     return this.http<{ execution: string; deliveries: Array<{ state: string }> }>(
@@ -102,4 +108,23 @@ export type InboxView = {
 export type SendView = {
   message: { id: string; traceId: string };
   deliveries: Array<{ recipientSessionId: string; state: string; reason?: string }>;
+};
+
+export type ArtifactGetView = {
+  artifactId: string;
+  name: string;
+  mime: string;
+  byteSize: number;
+  hash: string;
+  version: number;
+  contentBase64?: string;
+  path?: string;
+};
+
+export type ArtifactPutView = {
+  artifactId: string;
+  name: string;
+  byteSize: number;
+  hash: string;
+  version: number;
 };

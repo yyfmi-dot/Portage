@@ -61,7 +61,11 @@ type ContentPart =
 
 此为契约示意，序列化版本在实现时固定。senderId 从认证上下文派生。修订保留原 Message ID 与递增 revision，Delivery 固定引用实际投递版本。
 
-Artifact 包含 id、workspaceId、hash、MIME、byteSize、originalName、sourceSessionId、sourceMessageId、version、storageKey 和访问归属。大内容流式存储。路径记录来源，跨设备以稳定 ID 访问和材料化。
+Artifact 包含 id、workspaceId、hash、MIME、byteSize、originalName、sourceSessionId、sourceMessageId、version、storageKey 和访问归属。大内容流式存储。路径记录来源，跨设备以稳定 ID 访问。
+
+交接（实现）：出站不把 storageKey 注入 query，只注入 artifact 收据；agent 经 MCP `portage_artifact_get` / `portage_artifact_put` 读写对象库。按需落盘路径挂在工具结果上（如 workdir 相对 path），不污染 Artifact 主键。`portage_send` 可带 `artifactIds`。原生宿主 UI 内用户上传不同步为 Portage Artifact。
+
+投递机：`dispatching` 可转入 `held`（例如 Codex `active writer` → reason=`attached`），由适配器 hold 语义触发，tick 在就绪后 release 再投。
 
 ## 投递与凭据
 
@@ -94,6 +98,7 @@ Delivery 包含 messageId、messageRevision、recipientSessionId、conversationI
 | dispatching | 获得提交凭据 | submitted | 保存证明层级与原生关联 ID |
 | dispatching | 提交边界的结果不明 | uncertain | 等待原生查询或回读核对 |
 | dispatching | 证明尚未提交且可重试 | queued | 按重试策略重新调度 |
+| dispatching | 原生写权暂不可用（如 active writer） | held | reason=`attached`，detail 说明；tick 重试 |
 | dispatching | 明确失败 | failed | 保存失败原因和尝试记录 |
 | uncertain | 原生回读确认提交 | submitted | 补充对应原生凭据 |
 | uncertain | 证明可安全重试 | queued | 重新安排投递尝试 |

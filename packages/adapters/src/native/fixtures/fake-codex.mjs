@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // A stand-in for `codex exec --json … resume <id> -` that writes a real-format rollout transcript.
-// FAKE_CODEX_MODE: ok (default) | fail (turn.failed) | crash (exits before starting) | silent (never starts)
+// FAKE_CODEX_MODE: ok (default) | fail (turn.failed) | crash (exits before starting) | silent (never starts) | writer (active writer conflict)
 // FAKE_CODEX_ARGS_LOG: append argv as one JSON line per turn.
 import { appendFileSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -23,6 +23,10 @@ const find = (dir) => {
   }
 };
 const rollout = find(root);
+if (mode === "writer") {
+  process.stderr.write(`Error: thread/resume: thread/resume failed: thread ${id} already has an active writer (code -32600)\n`);
+  process.exit(1);
+}
 if (mode === "crash" || !rollout) {
   process.stderr.write(`Error: thread/resume failed: no rollout found for thread id ${id}\n`);
   process.exit(1);

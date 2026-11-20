@@ -43,7 +43,7 @@ export type InjectHook = (input: {
 }) => Promise<
   /** `running`: the submission started a native turn; the session is busy until the host reports otherwise. */
   | { ok: true; nativeMessageId?: string; adapterId?: string; proof?: ProofLevel; running?: boolean }
-  | { ok: false; retryable?: boolean; uncertain?: boolean; error: string }
+  | { ok: false; retryable?: boolean; uncertain?: boolean; hold?: HoldReason; detail?: string; error: string }
 >;
 
 /** Adapter-side readiness of the recipient, checked right before a submission. */
@@ -1652,6 +1652,8 @@ export class MemoryBus implements PortageBusApi {
         });
       } else if (result.uncertain) {
         this.transition(delivery, { type: "uncertain" });
+      } else if (result.hold) {
+        this.transition(delivery, { type: "hold", reason: result.hold, detail: result.detail ?? result.error });
       } else if (result.retryable) {
         this.transition(delivery, { type: "retry" });
       } else {

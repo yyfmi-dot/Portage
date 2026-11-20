@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { join, resolve, sep } from "node:path";
-import { TUNABLE_BUDGETS, policyDocumentBody, type BusEvent, type Message } from "@portage/core";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { TUNABLE_BUDGETS, policyDocumentBody, type BusEvent, type Message, type Session } from "@portage/core";
 import { createRuntime, historyPage, seedDemoRoom, snapshotForUi, type DaemonRuntime, type RuntimeOptions } from "./runtime.js";
 
 const DEFAULT_PORT = 8787;
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
+/** Small enough to return inline over MCP without flooding the model context. */
+const INLINE_ARTIFACT_BYTES = 256 * 1024;
 const TICK_MS = 5000;
 
 type Body = Record<string, any>;
@@ -277,6 +279,32 @@ function participantOf(runtime: DaemonRuntime, sessionId: string) {
   return participant;
 }
 
+function sessionWorkdir(session: Session) {
+  if (!session.workdir?.trim()) throw new HttpError(400, "session has no working directory");
+  return resolve(session.workdir);
+}
+
+/** Resolve a path the agent named; must stay inside the session workdir. */
+function resolveUnderWorkdir(workdir: string, requested: string) {
+  const root = resolve(workdir);
+  const target = resolve(root, requested);
+  if (target !== root && !target.startsWith(root + sep)) throw new HttpError(403, `path escapes workdir: ${requested}`);
+  return target;
+}
+
+/** Artifacts this session may open: ones it created, or ones referenced on messages in its DM / active rooms. */
+function sessionCanReadArtifact(runtime: DaemonRuntime, session: Session, artifactId: string) {
+  const artifact = runtime.bus.artifacts.get(artifactId);
+  if (!artifact) return false;
+  if (artifact.sourceSessionId === session.id) return true;
+  const allowed = new Set<string>([`dm_${session.id}`, ...runtime.bus.activeRoomsForSession(session.id).map((r) => r.id)]);
+  for (const message of runtime.bus.messages.values()) {
+    if (!allowed.has(message.conversationId)) continue;
+    if (message.parts.some((p) => p.kind === "artifact_ref" && p.artifactId === artifactId)) return true;
+  }
+  return false;
+}
+
 /** Match a CLI's ancestor pids against registered native identities (nearest ancestor wins). */
 route("POST", "/api/agent/resolve", ({ runtime, body }) => {
   const pids = Array.isArray(body.pids) ? body.pids.map(Number) : [];
@@ -409,6 +437,69 @@ route("POST", "/api/agent/:session/send", async ({ runtime, params, body }) => {
     source: "agent",
     idempotencyKey: String(body.idempotencyKey ?? `agent_${session.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`),
   });
+});
+
+route("POST", "/api/agent/:session/artifacts/get", ({ runtime, params, body }) => {
+  const session = sessionOrThrow(runtime, params[0]!);
+  const artifactId = requireString(body.artifactId, "artifactId");
+  const artifact = runtime.bus.artifacts.get(artifactId);
+  if (!artifact) throw new HttpError(404, `artifact not found: ${artifactId}`);
+  if (!sessionCanReadArtifact(runtime, session, artifactId)) throw new HttpError(403, `artifact not visible to this session: ${artifactId}`);
+  const storePath = resolve(artifact.storageKey);
+  if (!storePath.startsWith(resolve(runtime.paths.artifacts) + sep)) throw new HttpError(403, "artifact is outside the store");
+  if (!existsSync(storePath)) throw new HttpError(410, `artifact content is gone: ${artifact.originalName}`);
+  const meta = {
+    artifactId: artifact.id,
+    name: artifact.originalName,
+    mime: artifact.mime,
+    byteSize: artifact.byteSize,
+    hash: artifact.hash,
+    version: artifact.version,
+  };
+  const wantPath = body.writeTo != null && String(body.writeTo).trim() !== "";
+  if (wantPath || artifact.byteSize > INLINE_ARTIFACT_BYTES) {
+    const workdir = sessionWorkdir(session);
+    const target = resolveUnderWorkdir(
+      workdir,
+      wantPath ? String(body.writeTo) : join(".portage", "cache", artifact.id, artifact.originalName),
+    );
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, readFileSync(storePath));
+    return { ...meta, path: relative(workdir, target) || basename(target) };
+  }
+  return { ...meta, contentBase64: readFileSync(storePath).toString("base64") };
+}, false);
+
+route("POST", "/api/agent/:session/artifacts/put", ({ runtime, params, body }) => {
+  const session = sessionOrThrow(runtime, params[0]!);
+  let content: Buffer;
+  let name: string;
+  if (body.path != null && String(body.path).trim() !== "") {
+    const workdir = sessionWorkdir(session);
+    const source = resolveUnderWorkdir(workdir, String(body.path));
+    if (!existsSync(source)) throw new HttpError(404, `file not found under workdir: ${body.path}`);
+    content = readFileSync(source);
+    name = String(body.name ?? basename(source)).replace(/[\\/:*?"<>|]/g, "_");
+  } else {
+    content = Buffer.from(requireString(body.contentBase64, "contentBase64"), "base64");
+    name = requireString(body.name, "name").replace(/[\\/:*?"<>|]/g, "_");
+  }
+  if (!name.trim()) throw new HttpError(400, "name required");
+  if (content.byteLength > MAX_ARTIFACT_BYTES) throw new HttpError(413, "artifact too large");
+  const hash = `h${createHash("sha256").update(content).digest("hex").slice(0, 16)}`;
+  const storageKey = join(runtime.paths.artifacts, `${hash}_${name}`);
+  writeFileSync(storageKey, content);
+  const artifact = runtime.bus.createArtifact({
+    originalName: name,
+    mime: String(body.mime || guessMime(name)),
+    byteSize: content.byteLength,
+    hash,
+    storageKey,
+    createdBy: participantOf(runtime, session.id).id,
+    conversationId: body.conversationId ? String(body.conversationId) : undefined,
+    sourceSessionId: session.id,
+  });
+  return { artifactId: artifact.id, name: artifact.originalName, byteSize: artifact.byteSize, hash: artifact.hash, version: artifact.version };
 });
 
 route("POST", "/api/agent/:session/status", async ({ runtime, params, body }) => {

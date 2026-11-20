@@ -123,8 +123,18 @@ export class NativeTurnAdapter extends TranscriptAdapter {
 
     const outcome = await startWait;
     if (outcome === "started") return { ok: true, proof: "submitted", nativeMessageId: session.nativeIdentity };
-    if (outcome === "exited")
-      return { ok: false, error: failure ?? (lastLine(stderr) || `${this.provider} exited before the turn started`), retryable: false };
+    if (outcome === "exited") {
+      const error = failure ?? (lastLine(stderr) || `${this.provider} exited before the turn started`);
+      if (isActiveWriterConflict(error)) {
+        return {
+          ok: false,
+          hold: "attached",
+          detail: "another client holds this thread's writer; Portage will retry when it can take the turn",
+          error,
+        };
+      }
+      return { ok: false, error, retryable: false };
+    }
     // Still running but silent: the input may or may not be in the transcript yet; read-back decides.
     return { ok: false, uncertain: true, error: "the turn did not report a start in time" };
   }
@@ -139,4 +149,9 @@ export class NativeTurnAdapter extends TranscriptAdapter {
     }, 3000).unref();
     return true;
   }
+}
+
+/** Codex refuses a second resume while App / IDE still holds the thread writer. */
+export function isActiveWriterConflict(error: string): boolean {
+  return /active writer|already has an active writer/i.test(error);
 }
