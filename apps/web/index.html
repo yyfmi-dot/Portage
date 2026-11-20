@@ -22,8 +22,8 @@
           ><input
             id="sessionSearch"
             type="search"
-            placeholder="Search sessions…"
-            aria-label="Search sessions"
+            placeholder="Jump or run an action…"
+            aria-label="Open command palette"
           /><kbd>⌘ K</kbd></label
         >
         <div class="sidebar-heading">
@@ -64,7 +64,7 @@
                   <p id="viewSubtitle">Sessions from different tools, working in one room.</p>
                 </div>
                 <div class="room-actions">
-                  <button id="addMember" class="button secondary">＋ Add member</button
+                  <button id="addMember" class="button secondary">＋ Add members</button
                   ><button id="roomRules" class="button rule-button">
                     <span class="mono">✎</span> <span id="roomRulesLabel">Room rules</span>
                   </button>
@@ -126,8 +126,8 @@
                 <div class="chat-bar">
                   <div class="chat-context" id="chatContext"></div>
                   <div id="chatSource" class="segmented" role="tablist" aria-label="Record source" hidden>
-                    <button data-chat-source="portage" role="tab">Portage messages</button
-                    ><button data-chat-source="native" role="tab">Its own record</button>
+                    <button data-chat-source="portage" role="tab">In Portage</button
+                    ><button data-chat-source="native" role="tab" id="nativeChatTab">In its own app</button>
                   </div>
                 </div>
                 <div id="messages" class="messages" aria-live="polite"></div>

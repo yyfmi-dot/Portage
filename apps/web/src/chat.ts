@@ -61,7 +61,7 @@ export function receiptChips(message: VMessage) {
           : reasonShort[d.reason] ?? deliveryStateLabels[d.state] ?? d.state;
       return `<span class="rcpt ${tone}"><i></i>${escapeHtml(senderName(d.recipient))}<em>${escapeHtml(label)}</em></span>`;
     })
-    .join("")}<span class="rcpt-more">Details ↗</span></button>`;
+    .join("")}</button>`;
 }
 
 export function emptyChat(direct: boolean) {
@@ -78,9 +78,13 @@ export function emptyChat(direct: boolean) {
       ? `${lead ? "Everyone" : current.members.slice(0, 3).map((id) => `@${session(id)!.alias}`).join(" ")}, share where you are and what is blocking you.`
       : "",
   ].filter(Boolean);
-  return `<div class="empty-state chat-empty"><b>No messages yet</b><span>${escapeHtml(modeLabel(current.mode))}. Try an opener below${current.members.length > 1 ? ", or watch the demo first" : ""}.</span><div class="suggestions">${suggestions
+  const demo =
+    current.members.length > 1
+      ? `<button class="text-button" data-run-demo>Watch a short demo first</button>`
+      : "";
+  return `<div class="empty-state chat-empty"><b>No messages yet</b><span>${escapeHtml(modeLabel(current.mode))}. Try an opener below.</span><div class="suggestions">${suggestions
     .map((s) => `<button data-suggest="${escapeHtml(s)}">${richText(s).replace(/<button[^>]*>|<\/button>/g, "")}</button>`)
-    .join("")}</div></div>`;
+    .join("")}</div>${demo ? `<div class="chat-empty-actions">${demo}</div>` : ""}</div>`;
 }
 
 export function artifactMarkup(item: Artifact, versions = 1) {
@@ -118,9 +122,11 @@ export function renderChat() {
   $("chatSource").hidden = !target;
   for (const button of document.querySelectorAll<HTMLButtonElement>("[data-chat-source]"))
     button.setAttribute("aria-selected", String(button.dataset.chatSource === (nativeView ? "native" : "portage")));
+  const nativeTab = $("nativeChatTab");
+  if (nativeTab && target) nativeTab.textContent = `In ${target.provider}`;
   $("chatContext").textContent = target
     ? nativeView
-      ? `${target.name}'s own session record · Portage only reads it`
+      ? `What ${target.name} sees in ${target.provider} · Portage only reads it`
       : `You and ${target.name}, including room messages that involve it`
     : `Visible to ${plural(room().members.length, "member")} · ${modeLabel(room().mode)}`;
   const box = $("messages");
@@ -147,13 +153,13 @@ export function renderChat() {
           const parent = item.parentId ? byId.get(item.parentId) : undefined;
           const continued = previous?.sender === item.sender && previous.traceId === item.traceId && item.at - previous.at < 5 * 60_000 && !parent;
           const divider = previous && new Date(previous.at).toDateString() !== new Date(item.at).toDateString()
-            ? `<div class="day-divider"><span>${new Date(item.at).toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" })}</span></div>`
+            ? `<div class="day-divider"><span>${new Date(item.at).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</span></div>`
             : "";
           previous = item;
           const quote = parent
             ? `<button class="reply-quote" data-message="${parent.id}"><b>${escapeHtml(senderName(parent.sender))}</b>${escapeHtml(parent.text.slice(0, 60))}${parent.text.length > 60 ? "…" : ""}</button>`
             : "";
-          return `${divider}<article data-id="${item.id}" class="message ${ui.freshMessages.has(item.id) ? "fresh" : ""} ${continued ? "continued" : ""} ${item.sender === "user" ? "from-user" : ""}" style="--agent-color:${author?.color ?? "#d87243"}"><span class="avatar ${author?.provider === "Claude" ? "claude" : ""} ${item.sender === "user" ? "user" : ""}">${item.sender === "user" ? "You" : initial(author)}</span><div class="message-main"><div class="message-header"><b>${escapeHtml(senderName(item.sender))}</b><span class="message-source">${author ? `${author.provider} · ${author.host}` : ""}${item.direct ? " · direct" : ""}${item.demo ? " · demo" : ""}</span><time>${timeLabel(item.at)}</time></div>${quote}<div class="message-body">${richText(item.text)}${item.revision > 1 ? ` <small>(edited, v${item.revision})</small>` : ""}</div>${item.artifacts.length ? `<div class="artifact-grid">${item.artifacts.map((a) => artifactMarkup(a)).join("")}</div>` : ""}${receiptChips(item)}<div class="message-actions"><button data-message="${item.id}">Delivery</button>${item.sender === "user" ? `<button data-edit-message="${item.id}">Edit</button>` : ""}<button data-hide-message="${item.id}">Hide</button></div></div></article>`;
+          return `${divider}<article data-id="${item.id}" class="message ${ui.freshMessages.has(item.id) ? "fresh" : ""} ${continued ? "continued" : ""} ${item.sender === "user" ? "from-user" : ""}" style="--agent-color:${author?.color ?? "#d87243"}"><span class="avatar ${author?.provider === "Claude" ? "claude" : ""} ${item.sender === "user" ? "user" : ""}">${item.sender === "user" ? "You" : initial(author)}</span><div class="message-main"><div class="message-header"><b>${escapeHtml(senderName(item.sender))}</b><span class="message-source">${author ? `${author.provider} · ${author.host}` : ""}${item.direct ? " · direct" : ""}${item.demo ? " · demo" : ""}</span><time>${timeLabel(item.at)}</time></div>${quote}<div class="message-body">${richText(item.text)}${item.revision > 1 ? ` <small>(edited)</small>` : ""}</div>${item.artifacts.length ? `<div class="artifact-grid">${item.artifacts.map((a) => artifactMarkup(a)).join("")}</div>` : ""}${receiptChips(item)}<div class="message-actions">${item.sender === "user" ? `<button data-edit-message="${item.id}">Edit</button>` : ""}<button data-hide-message="${item.id}">Hide</button></div></div></article>`;
         })
         .join("")
     : emptyChat(Boolean(target));
@@ -203,7 +209,7 @@ function nativeMarkup(sessionId: string) {
   if (!record) return `<div class="empty-state chat-empty"><b>Reading its native record…</b></div>`;
   const cp = record.checkpoint;
   const sync = cp
-    ? `<div class="native-sync ${cp.error ? "gap" : ""}"><span>${cp.error ? `Read interrupted · ${escapeHtml(cp.error)}` : `Synced at ${cp.lastSuccessAt ? timeLabel(Date.parse(cp.lastSuccessAt)) : "—"}`}</span><code title="${escapeHtml(cp.source)}">${escapeHtml(cp.source.split(/[\\/]/).slice(-2).join("/"))} · cursor ${cp.cursor}</code></div>`
+    ? `<div class="native-sync ${cp.error ? "gap" : ""}"><span>${cp.error ? `Couldn't refresh · ${escapeHtml(cp.error)}` : `Up to date · ${cp.lastSuccessAt ? timeLabel(Date.parse(cp.lastSuccessAt)) : "—"}`}</span></div>`
     : "";
   return `${sync}${record.events.length ? record.events.map(nativeEventMarkup).join("") : `<div class="empty-state chat-empty"><b>Nothing recorded yet</b><span>Once you message it, what it received and how it replied show up here.</span></div>`}`;
 }
@@ -216,7 +222,7 @@ export function renderComposer() {
     const target = session(ui.selection.id)!;
     select.innerHTML = `<option value="${target.id}">${escapeHtml(target.name)}</option>`;
     send.disabled = !target.enabled || !target.writable;
-    $("contextRevision").textContent = `Global v${model().globalRevision} · direct`;
+    $("contextRevision").textContent = "Direct";
     ($("messageInput") as HTMLTextAreaElement).placeholder = `Message ${target.name.replace(/…$/, "")}…`;
   } else {
     ($("messageInput") as HTMLTextAreaElement).placeholder = "Write a message, or @ a member…";
@@ -225,7 +231,7 @@ export function renderComposer() {
       .join("")}`;
     if ([...select.options].some((o) => o.value === previous)) select.value = previous;
     send.disabled = false;
-    $("contextRevision").textContent = `Global v${model().globalRevision} · room v${room().revision}`;
+    $("contextRevision").textContent = modeLabel(room().mode);
   }
   renderWakePreview();
   $("attachmentPreview").hidden = !ui.attachment;

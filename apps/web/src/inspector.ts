@@ -177,7 +177,9 @@ export function sessionInspector(item: VSession) {
     item.adapterId && item.execution === "running" ? `<button class="wide-button" data-interrupt-session="${item.id}">Stop its current turn</button>` : "",
     inRoom ? `<button class="wide-button" data-wake-session="${item.id}">Wake it once</button>` : "",
     inRoom && current.mode === "coordinator" && !isCoordinator ? `<button class="wide-button" data-make-coordinator="${item.id}">Make lead</button>` : "",
-    `<button class="wide-button" data-ready-session="${item.id}">Mark as ready</button>`,
+    pending.length || status === "waiting_human" || status === "busy" || item.detail
+      ? `<button class="wide-button" data-ready-session="${item.id}">Mark as ready</button>`
+      : "",
     last ? `<button class="wide-button" data-show-snapshot="${last.id}">See the last thing it received</button>` : "",
   ].join("");
   const tech = techDetails(`session:${item.id}`, [

@@ -75,8 +75,8 @@ export function renderOffice() {
   $("roomDropZone").hidden = !members.length || members.length >= 6;
   document.querySelector<HTMLElement>(".office-legend")!.hidden = !members.length;
   renderEmptyRoom(members.length);
-  $("demoCollaboration").hidden = members.length < 2 || ui.selection.kind === "session";
-  ($("demoCollaboration") as HTMLButtonElement).disabled = ui.demoRunning;
+  // Demo lives in Chat empty state and ⌘K — not beside Mode/Pause, where it competed with real controls.
+  $("demoCollaboration").hidden = true;
 }
 
 /** Station spots depend on room size and stage shape, so the user's bubble picks the side of the door that covers the least. */

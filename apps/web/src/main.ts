@@ -52,6 +52,7 @@ document.addEventListener("click", (event) => {
   } else if (data.openRules) showRules(data.openRules as "room" | "global");
   else if (data.scope) showRules(data.scope as "room" | "global");
   else if (data.openMembers !== undefined) $("addMember").click();
+  else if (data.runDemo !== undefined) void demoCollaboration();
   else if (data.renameRoom !== undefined) renameRoom();
   else if (data.findSessions !== undefined) {
     ($("membersDialog") as HTMLDialogElement).close();
