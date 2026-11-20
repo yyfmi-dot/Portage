@@ -1,8 +1,10 @@
 import { constants } from "node:fs";
 import { access, appendFile, readdir } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { appServerCall } from "./app-server.js";
+import { lastLine } from "./transcript-adapter.js";
 import type { TurnCli } from "./native-turn-adapter.js";
 
 const toml = (value: string) => JSON.stringify(value);
@@ -36,7 +38,33 @@ export const codexCli: TurnCli = {
   // thread database they list from.
   rename: ({ binary, nativeSessionId, title }) =>
     appServerCall(binary, "thread/name/set", { threadId: nativeSessionId, name: title }).then(() => undefined),
+  // When VS Code / the desktop app holds the writer (even idle), queue into that holder — do not
+  // ask the user to close the session. The holder runs the turn on the same thread.
+  queue: ({ binary, nativeSessionId, message, cwd }) => queueCodexMessage(binary, nativeSessionId, message, cwd),
 };
+
+/** `codex queue --thread <id> --message <text>`: enqueue for the client that already has the writer. */
+function queueCodexMessage(binary: string, threadId: string, message: string, cwd?: string) {
+  return new Promise<{ ok: true; queueId?: string } | { ok: false; error: string }>((resolve) => {
+    const child = spawn(binary, ["queue", "--thread", threadId, "--message", message], {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: process.env,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout!.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
+    child.stderr!.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
+    child.on("error", (error) => resolve({ ok: false, error: error.message }));
+    child.on("close", (code) => {
+      const text = `${stdout}\n${stderr}`;
+      const match = /Queued message\s+(\S+)\s+for thread/i.exec(text);
+      if (code === 0 && match) return resolve({ ok: true, queueId: match[1] });
+      if (code === 0 && /Queued message/i.test(text)) return resolve({ ok: true });
+      resolve({ ok: false, error: lastLine(stderr) || lastLine(stdout) || `codex queue exited with ${code}` });
+    });
+  });
+}
 
 /** `claude -p --resume <id>`: one turn on an existing session, prompt on stdin, stream-json on stdout. */
 export const claudeCli: TurnCli = {

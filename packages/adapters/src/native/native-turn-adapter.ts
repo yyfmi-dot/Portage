@@ -13,6 +13,13 @@ export type TurnCli = {
   signal(line: Record<string, any>): { started?: true; failed?: string; done?: true } | undefined;
   /** Rename the native session through the CLI's own mechanism, so its app and CLI show the new title. */
   rename(input: { binary: string; nativeSessionId: string; transcript: string; title: string }): Promise<void>;
+  /**
+   * When another client holds the thread writer (IDE idle-but-loaded), enqueue input for that
+   * holder to run — same session, no need to close it. Codex: `codex queue`.
+   */
+  queue?(input: { binary: string; nativeSessionId: string; message: string; cwd?: string }): Promise<
+    { ok: true; queueId?: string } | { ok: false; error: string }
+  >;
 };
 
 export type NativeTurnAdapterOptions = TranscriptAdapterOptions & { cli: TurnCli };
@@ -56,6 +63,16 @@ export class NativeTurnAdapter extends TranscriptAdapter {
 
   protected renameNative({ binary, session, transcript, title }: { binary: string; session: Session; transcript: string; title: string }) {
     return this.options.cli.rename({ binary, nativeSessionId: session.nativeIdentity, transcript, title });
+  }
+
+  /**
+   * Portage-first: if the only blocker is another client holding the writer (or a turn in that
+   * client), and this CLI can `queue`, stay ready — inject will queue into the holder.
+   */
+  override async readiness(session: Session): Promise<Readiness> {
+    const state = await super.readiness(session);
+    if (state.ready || state.reason !== "attached" || !this.options.cli.queue) return state;
+    return { ready: true };
   }
 
   async inject(session: Session, _message: Message, compiledQuery: string): Promise<InjectResult> {
@@ -114,6 +131,8 @@ export class NativeTurnAdapter extends TranscriptAdapter {
     child.on("close", (code) => {
       this.turns.delete(session.id);
       const error = failure ?? (code === 0 ? undefined : lastLine(stderr) || `${this.provider} exited with ${code}`);
+      // Writer lock refused the resume: no Portage turn ever started, so don't report a failed turn.
+      if (error && isActiveWriterConflict(error)) return;
       this.turnEnded(session.id, !error, error);
     });
     child.stdin!.on("error", () => {
@@ -125,6 +144,23 @@ export class NativeTurnAdapter extends TranscriptAdapter {
     if (outcome === "started") return { ok: true, proof: "submitted", nativeMessageId: session.nativeIdentity };
     if (outcome === "exited") {
       const error = failure ?? (lastLine(stderr) || `${this.provider} exited before the turn started`);
+      if (isActiveWriterConflict(error) && this.options.cli.queue) {
+        const queued = await this.options.cli.queue({
+          binary,
+          nativeSessionId: session.nativeIdentity,
+          message: compiledQuery,
+          cwd: session.workdir,
+        });
+        if (queued.ok) {
+          return { ok: true, proof: "submitted", nativeMessageId: queued.queueId ?? session.nativeIdentity };
+        }
+        return {
+          ok: false,
+          hold: "attached",
+          detail: queued.error || "could not queue into the client that holds this thread",
+          error: queued.error || error,
+        };
+      }
       if (isActiveWriterConflict(error)) {
         return {
           ok: false,

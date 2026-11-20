@@ -243,7 +243,7 @@ Adapter 提供写入字节、提交输入、原生消息确认等分层凭据。
 | 环节 | 当前行为 |
 | --- | --- |
 | 发现 | 读取 Codex `~/.codex/sessions` 与 Claude Code `~/.claude/projects` 的会话记录：原生 ID、工作目录、最近活跃、首条真实用户输入作标题；跳过子 agent 线程与 IDE 注入上下文 |
-| 就绪 | **Portage-first**：用户从 Portage 发送时，应由 Portage 取得本回合写权并驱动会话，而不是把「IDE / App 开着」默认打成 Failed。当前：别的客户端只是开着会话不阻塞；提交前若记录 15 秒内被别人写入，或最新回合未结束且有进程持有 / 30 分钟内写过 → held(`attached`)；**Codex `active writer` 同样 held(`attached`)，tick 重试，禁止 Failed**。Portage 自己回合不算；CLI 不可用 → held(`offline`)。目标（待验证）：经同一 app-server 投递或 claim 写权 |
+| 就绪 | **Portage-first**：用户从 Portage 发送时，应由 Portage 取得本回合写权并驱动会话，而不是把「IDE / App 开着」默认打成 Failed。当前：别的客户端只是开着会话不阻塞；提交前若记录 15 秒内被别人写入，或最新回合未结束且有进程持有 / 30 分钟内写过 → held(`attached`)；**Codex `active writer` 同样 held(`attached`)，tick 重试，禁止 Failed**。Portage 自己回合不算；CLI 不可用 → held(`offline`)。写锁被 IDE 占用时回退 `codex queue`：消息进入同一线程，由占写锁的客户端执行，无需用户关闭 session |
 | 标题 | 双向同步。读：Codex 取 `session_index.jsonl` 中该线程最新的 `thread_name`，Claude 取记录尾部最新的 `custom-title`（优先）或 `ai-title`，都没有时取首句。写：Codex 经短时 `codex app-server` 调 `thread/name/set`（同时更新索引与它的线程库），Claude 追加与 `/rename` 相同的 `custom-title` 记录。Session 记 `nativeTitle`：读到的标题与之不同即视为在原生端改名并同步到 Portage；首次读取只记录不改名 |
 | 提交 | 以该会话身份恢复一次 headless 回合，query 走 stdin；临时挂 Portage MCP 供回复与产物交接；继承会话最近的沙箱 / 网络 / 权限设置。同一会话一把输入锁，不同会话并行，在途回合计入活动席位 |
 | 凭据 | 进程启动 = `submitted`；回读到带消息标记的输入 = `native_confirmed`（同时核对 `uncertain`）；agent 经 MCP 读取或回复 = `agent_ack` |

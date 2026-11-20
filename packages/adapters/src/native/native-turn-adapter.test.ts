@@ -153,27 +153,20 @@ describe.skipIf(!posix)("NativeTurnAdapter · readiness", () => {
     expect(await adapter({ binary: null }).readiness(session("t1"))).toMatchObject({ reason: "offline", detail: "codex CLI not found" });
   });
 
-  it("is not blocked by another app merely having the session open, but waits while a turn runs there", async () => {
+  it("stays ready when another app holds the thread, because Codex can queue into that holder", async () => {
     const path = rollout("t2", [event("task_started"), said("user", "hi"), said("assistant", "hello"), event("task_complete")]);
     const holder = spawn("tail", ["-f", path], { stdio: "ignore" });
     try {
-      // loaded in an app days ago and idle there: Portage drives it
       expect(await adapter().readiness(session("t2"))).toEqual({ ready: true });
-
       appendFileSync(path, JSON.stringify(event("task_started")) + "\n");
       age(path, 120_000);
-      const a = adapter();
-      let state = await a.readiness(session("t2"));
-      for (let i = 0; i < 50 && state.ready; i += 1) state = await a.readiness(session("t2"));
-      expect(state).toEqual({ ready: false, reason: "attached", detail: `a turn is running in pid ${holder.pid}` });
+      // Mid-turn in the other client: still ready — inject will queue instead of waiting forever.
+      expect(await adapter().readiness(session("t2"))).toEqual({ ready: true });
     } finally {
       holder.kill();
       await new Promise((r) => holder.once("exit", r));
     }
-    // still open, nothing holds it, but written recently enough to be a client that does not keep files open
-    expect(await adapter().readiness(session("t2"))).toEqual({ ready: false, reason: "attached", detail: "a turn is running in another client" });
-    // open, nothing holds it, silent past the stale window: an abandoned turn, not a running one
-    expect(await adapter({ staleTurnMs: 60_000 }).readiness(session("t2"))).toEqual({ ready: true });
+    expect(await adapter().readiness(session("t2"))).toEqual({ ready: true });
   });
 
   it("Portage's own turn left open (interrupted mid-turn) never blocks the next delivery", async () => {
@@ -186,16 +179,33 @@ describe.skipIf(!posix)("NativeTurnAdapter · readiness", () => {
     expect(await a.readiness(session("t2b"))).toEqual({ ready: true });
   });
 
-  it("treats a fresh write by someone else as attached, but not the session's own Portage turn", async () => {
+  it("a fresh write by someone else does not block Codex either; queue can still land", async () => {
     const path = rollout("t3", [said("user", "hi")]);
     appendFileSync(path, JSON.stringify(said("user", "typed in the TUI just now")) + "\n");
-    const a = adapter();
-    expect(await a.readiness(session("t3"))).toMatchObject({ reason: "attached", detail: "written moments ago by another client" });
+    expect(await adapter().readiness(session("t3"))).toEqual({ ready: true });
 
     rollout("t4", [said("user", "hi")]);
+    const a = adapter();
     await a.inject(session("t4"), message("msg_a"), query("msg_a", "ping"));
     await until(() => ends[0]);
     expect(await a.readiness(session("t4"))).toEqual({ ready: true });
+  });
+
+  it("without a queue fallback, an open turn elsewhere still holds", async () => {
+    const path = rollout("t2h", [said("user", "hi"), event("task_started")]);
+    age(path, 120_000);
+    const noQueue = new NativeTurnAdapter({
+      id: "codex-native",
+      dialect: codexDialect(join(home, "sessions")),
+      cli: { ...codexCli, queue: undefined, binary: async () => FAKE },
+      mcp: { command: "node", args: ["/opt/portage-mcp.mjs", "--daemon", "http://127.0.0.1:1"] },
+      onTurnEnd: (end) => ends.push(end),
+    });
+    expect(await noQueue.readiness(session("t2h"))).toMatchObject({
+      ready: false,
+      reason: "attached",
+      detail: "a turn is running in another client",
+    });
   });
 });
 
@@ -299,15 +309,12 @@ describe.skipIf(!posix)("NativeTurnAdapter · a turn", () => {
     expect(result).toEqual({ ok: false, retryable: false, error: "Error: thread/resume failed: no rollout found for thread id t7" });
   });
 
-  it("an active writer conflict holds the delivery instead of failing hard", async () => {
+  it("an active writer conflict queues into the holding client instead of asking the user to close it", async () => {
     process.env.FAKE_CODEX_MODE = "writer";
     rollout("t7w", []);
     const result = await adapter().inject(session("t7w"), message("msg_w"), query("msg_w", "x"));
-    expect(result).toMatchObject({
-      ok: false,
-      hold: "attached",
-      error: expect.stringContaining("active writer"),
-    });
+    expect(result).toEqual({ ok: true, proof: "submitted", nativeMessageId: "fake-queue-1" });
+    expect(ends).toEqual([]);
   });
 
   it("a silent turn is uncertain, can be interrupted, and then verifies absent", async () => {

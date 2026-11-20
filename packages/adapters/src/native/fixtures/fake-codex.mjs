@@ -8,6 +8,11 @@ import { join } from "node:path";
 const argv = process.argv.slice(2);
 const mode = process.env.FAKE_CODEX_MODE ?? "ok";
 if (argv[0] === "app-server") await appServer();
+if (argv[0] === "queue") {
+  const thread = argv[argv.indexOf("--thread") + 1];
+  process.stdout.write(`Queued message fake-queue-1 for thread ${thread}.\n`);
+  process.exit(0);
+}
 const id = argv[argv.indexOf("resume") + 1];
 const root = join(process.env.CODEX_HOME, "sessions");
 const delay = Number(process.env.FAKE_CODEX_TURN_MS ?? 50);
