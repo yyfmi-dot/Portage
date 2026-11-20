@@ -70,8 +70,11 @@ export function countdownText(at: number) {
 
 /** Why a delivery is waiting, plus when it will move again if that is known. */
 export function waitMarkup(d: VDelivery) {
-  const label = reasonLabels[d.reason] ?? (d.state === "uncertain" ? "Not sure it landed yet; checking its own record" : "Waiting to deliver");
-  return `${escapeHtml(label)}${d.detail ? ` · ${escapeHtml(d.detail)}` : ""}${d.reason === "budget" ? ` · ${countdownMarkup(d.nextAttemptAt)}` : ""}`;
+  // Prefer the adapter's concrete detail (e.g. writer lock) over the generic reason label.
+  const label = d.detail?.trim()
+    ? d.detail.trim()
+    : (reasonLabels[d.reason] ?? (d.state === "uncertain" ? "Not sure it landed yet; checking its own record" : "Waiting to deliver"));
+  return `${escapeHtml(label)}${d.reason === "budget" ? ` · ${countdownMarkup(d.nextAttemptAt)}` : ""}`;
 }
 
 /** Escaped text with @alias mentions of current members turned into chips. */
