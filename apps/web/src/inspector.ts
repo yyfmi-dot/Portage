@@ -8,9 +8,15 @@ export function renderInspector() {
   let content: string;
   if (selected?.kind === "session" && session(selected.id)) content = sessionInspector(session(selected.id)!);
   else if (selected?.kind === "message") content = messageInspector(model().messages.find((m) => m.id === selected.id));
+  // DM / session focus with no explicit inspector pick: show that session, not an empty room shell.
+  else if (ui.selection.kind === "session" && session(ui.selection.id)) content = sessionInspector(session(ui.selection.id)!);
   else content = roomInspector();
   const inspector = $("inspector");
-  const key = selected ? `${selected.kind}:${selected.id}` : `room:${ui.roomId}`;
+  const key = selected
+    ? `${selected.kind}:${selected.id}`
+    : ui.selection.kind === "session"
+      ? `session:${ui.selection.id}`
+      : `room:${ui.roomId}`;
   const switched = inspector.dataset.key !== key;
   inspector.dataset.key = key;
   const scroll = inspector.scrollTop;

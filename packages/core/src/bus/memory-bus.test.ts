@@ -475,6 +475,21 @@ describe("MemoryBus L2/L3", () => {
     expect(snap.layers).not.toContain("Execution policy");
   });
 
+  it("direct conversation with a room-shaped target still wakes the peer", async () => {
+    const { bus } = seedBus();
+    const dm = bus.ensureDirectConversation("s_builder");
+    const sent = await bus.send({
+      conversationId: dm.id,
+      senderId: "user",
+      target: { kind: "room", id: dm.id },
+      text: "hi via room target",
+      idempotencyKey: "dm-room-shaped",
+      source: "user",
+    });
+    expect(sent.deliveries).toHaveLength(1);
+    expect(sent.deliveries[0]?.recipientSessionId).toBe("s_builder");
+  });
+
   it("previewContext compiles the same layers a real delivery would", async () => {
     const { bus } = seedBus();
     await bus.joinRoom({ conversationId: "room_dev", participantId: "p_lead" });

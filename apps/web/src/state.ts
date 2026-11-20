@@ -233,4 +233,25 @@ export const ui = {
 
 export const model = () => ui.model!;
 export const session = (id: string) => model().sessions.find((x) => x.id === id);
-export const room = (id = ui.roomId) => model().rooms.find((x) => x.id === id) ?? model().rooms[0]!;
+/** Placeholder when every room is gone (e.g. studio cast retired and no user room yet). */
+export const EMPTY_ROOM: VRoom = {
+  id: "",
+  name: "No room yet",
+  members: [],
+  mode: "swarm",
+  coordinator: null,
+  paused: false,
+  revision: 0,
+  document: "",
+  roundBudget: 4,
+  messageBudget: 12,
+  rounds: 0,
+  autoMessages: 0,
+  maxConcurrent: 2,
+  maxWakeups: 20,
+  runningSeats: 0,
+  traceWakeups: 0,
+  pulse: [],
+};
+export const room = (id = ui.roomId) =>
+  model().rooms.find((x) => x.id === id) ?? model().rooms[0] ?? EMPTY_ROOM;

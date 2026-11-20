@@ -240,7 +240,8 @@ function nativeEventMarkup(e: NativeEvent) {
   return `<article class="native-event ${e.kind} ${e.correlation}"><header><b>${input ? "Input" : "Output"}</b>${input ? `<span class="corr ${e.correlation}">${correlationLabels[e.correlation]}</span>` : ""}<time>${at}</time>${link}</header>${body}${full}</article>`;
 }
 
-/** Defense-in-depth: strip provider chrome already stored before cleanHostMarkup existed. */
+/** Defense-in-depth: strip provider chrome already stored before cleanHostMarkup existed.
+ *  Pure-chrome bodies become empty so the renderer can skip them — never fall back to the raw XML. */
 function cleanNativeBody(text: string) {
   return text
     .replace(
@@ -250,7 +251,7 @@ function cleanNativeBody(text: string) {
     .replace(/<(ide_[a-z_]+|system-reminder|pasted_content)\b[^>]*>[\s\S]*?(<\/\1>|$)/g, " ")
     .replace(/\n{2,}/g, "\n")
     .replace(/[^\S\n]{2,}/g, " ")
-    .trim() || text;
+    .trim();
 }
 
 /** What the input said in the user's words: the Portage message it carries, not the rule layers around it. */

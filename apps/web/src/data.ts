@@ -52,9 +52,20 @@ export async function refresh() {
       const preferred =
         ui.model.rooms.find((r) => r.members.some((id) => !session(id)?.demo)) ?? ui.model.rooms[0];
       if (preferred) ui.roomId = preferred.id;
+      else ui.roomId = "";
     }
-    if (ui.selection.kind === "session" && !session(ui.selection.id)) ui.selection = { kind: "room", id: ui.roomId };
-    else if (ui.selection.kind === "room" && ui.selection.id !== ui.roomId) ui.selection = { kind: "room", id: ui.roomId };
+    // No rooms (studio retired, nothing created yet): open a real session instead of crashing on room().
+    if (!ui.model.rooms.length) {
+      const live = ui.model.sessions.find((s) => !s.demo) ?? ui.model.sessions[0];
+      if (live && (ui.selection.kind !== "session" || !session(ui.selection.id))) {
+        ui.selection = { kind: "session", id: live.id };
+        ui.view = "chat";
+      }
+    } else if (ui.selection.kind === "session" && !session(ui.selection.id)) {
+      ui.selection = { kind: "room", id: ui.roomId };
+    } else if (ui.selection.kind === "room" && ui.selection.id !== ui.roomId) {
+      ui.selection = { kind: "room", id: ui.roomId };
+    }
     render();
   } catch (error) {
     setOffline(error instanceof Error ? error.message : String(error));

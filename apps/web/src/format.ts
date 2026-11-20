@@ -120,13 +120,16 @@ export function richText(text: string) {
 }
 
 export function sparkline(values: number[]) {
+  if (values.length < 2) return "";
   const width = 120;
   const height = 22;
   const max = Math.max(1, ...values);
   const step = width / (values.length - 1);
   const points = values.map((v, i) => [i * step, height - 2 - (v / max) * (height - 5)] as const);
   const line = points.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-  const [lx, ly] = points.at(-1)!;
+  const last = points.at(-1);
+  if (!last) return "";
+  const [lx, ly] = last;
   return `<span class="pulse-wrap"><svg class="pulse-line" viewBox="0 0 ${width} ${height}" aria-hidden="true"><defs><linearGradient id="pulseFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#d9a074" stop-opacity=".28"/><stop offset="1" stop-color="#d9a074" stop-opacity="0"/></linearGradient></defs><path d="${line} L${width},${height} L0,${height} Z" fill="url(#pulseFill)"/><path d="${line}" fill="none" stroke="#c98a5e" stroke-width="1.2" stroke-linejoin="round"/></svg><i class="pulse-tip" style="left:${((lx / width) * 100).toFixed(1)}%;top:${((ly / height) * 100).toFixed(1)}%"></i></span>`;
 }
 

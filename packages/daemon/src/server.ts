@@ -539,7 +539,7 @@ export async function startServer(
   const runtime = createRuntime({ hydrate: true, daemonUrl: `http://127.0.0.1:${port}`, ...options });
   const wantDemo = options.seedDemo === true || process.env.PORTAGE_SEED_DEMO === "1";
   if (wantDemo) await seedDemoRoom(runtime);
-  else retireStudioDemo(runtime);
+  else await retireStudioDemo(runtime);
   runtime.persist();
 
   const server = createServer((req, res) => {

@@ -242,12 +242,26 @@ export async function seedDemoRoom(runtime: DaemonRuntime) {
 }
 
 /** Archive seeded studio identities so the UI defaults to real Codex/Claude sessions. */
-export function retireStudioDemo(runtime: DaemonRuntime) {
+export async function retireStudioDemo(runtime: DaemonRuntime) {
   let n = 0;
-  for (const session of runtime.bus.sessions.values()) {
-    if (!isStudioDemoSession(session.nativeIdentity) || session.archivedAt) continue;
-    runtime.bus.updateSession({ sessionId: session.id, archived: true });
-    n += 1;
+  for (const session of [...runtime.bus.sessions.values()]) {
+    if (!isStudioDemoSession(session.nativeIdentity)) continue;
+    const participant = [...runtime.bus.participants.values()].find((p) => p.sessionId === session.id);
+    if (participant) {
+      const active = runtime.bus.memberships.filter(
+        (m) => m.participantId === participant.id && !m.leftAt,
+      );
+      for (const membership of active) {
+        await runtime.bus.leaveRoom({
+          conversationId: membership.conversationId,
+          participantId: participant.id,
+        });
+      }
+    }
+    if (!session.archivedAt) {
+      runtime.bus.updateSession({ sessionId: session.id, archived: true });
+      n += 1;
+    }
   }
   return n;
 }

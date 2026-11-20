@@ -148,7 +148,9 @@ export function buildModel(s: Snapshot): Model {
         traceWakeups: traceWakeups(s, c.id, c.state?.activeTraceId),
         pulse: activityPulse(s, c.id, now),
       };
-    });
+    })
+    // Empty Portage Studio after serve retires the demo cast — hide until Watch a demo.
+    .filter((r) => r.members.length > 0 || r.id !== "room_dev");
 
   const artifactsById = new Map(s.artifacts.map((a) => [a.id, a]));
   const directIds = new Set(s.conversations.filter((c) => c.kind === "direct").map((c) => c.id));

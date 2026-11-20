@@ -1225,6 +1225,15 @@ export class MemoryBus implements PortageBusApi {
       }
     }
 
+    // Direct chats use wakeMode=manual (no room auto-wake). A room-shaped target would
+    // accept the message and wake nobody — rewrite to the peer so DM send always delivers.
+    let target = input.target;
+    if (conversation.kind === "direct" && target.kind === "room") {
+      const peer =
+        activeMemberParticipantIds.find((id) => id !== input.senderId) ?? activeMemberParticipantIds[0];
+      if (peer) target = { kind: "participant", id: peer };
+    }
+
     const seq = (this.seqByConversation.get(input.conversationId) ?? 0) + 1;
     this.seqByConversation.set(input.conversationId, seq);
     const traceId = input.traceId ?? `trace_${input.idempotencyKey}`;
@@ -1239,7 +1248,7 @@ export class MemoryBus implements PortageBusApi {
       senderId: input.senderId,
       senderIsUser,
       isManualWake: input.isManualWake,
-      target: input.target,
+      target,
       text: input.text,
       extraParts,
       mentionParticipantIds: input.mentionParticipantIds,
