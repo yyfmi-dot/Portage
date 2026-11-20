@@ -488,7 +488,7 @@ describe("MemoryBus L2/L3", () => {
       "Original message",
       "How to reply",
     ]);
-    expect(preview.snapshot.query).toContain("current lead (routing)");
+    expect(preview.snapshot.query).toContain("· lead");
   });
 
   it("artifacts are referenced in parts and in the compiled query", async () => {

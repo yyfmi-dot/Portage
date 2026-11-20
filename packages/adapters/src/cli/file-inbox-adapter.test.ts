@@ -58,7 +58,8 @@ describe("FileInboxAdapter", () => {
     expect(nativePath).toBeTruthy();
     const body = readFileSync(nativePath!, "utf8");
     expect(body).toContain("deliver via file inbox");
-    expect(body).toContain("guidance only");
+    expect(body).toContain("[Original message ·");
+    expect(body).toMatch(/To: Codex ·/);
 
     const delivery = bus.deliveries.find((d) => d.id === sent.deliveries[0]!.id)!;
     const session = bus.sessions.get("s_codex")!;

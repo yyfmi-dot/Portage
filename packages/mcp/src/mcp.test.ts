@@ -195,6 +195,34 @@ describe("MCP bridge over stdio (real MCP client → real portage-mcp process �
     await post("/api/rooms/room_dev/members", { participantId: "p_reviewer" });
   });
 
+  it("artifact put → send with artifactIds → peer get reads the same bytes", async () => {
+    const builder = await connect(["--session", "s_builder"]);
+    const lead = await connect(["--session", "s_lead"]);
+    const put = await call(builder, "portage_artifact_put", {
+      name: "notes.md",
+      contentBase64: Buffer.from("# notes from builder").toString("base64"),
+      conversationId: "room_dev",
+    });
+    expect(put.isError).toBe(false);
+    const artifactId = /artifactId=(\S+)/.exec(put.text)![1]!;
+    const sent = await call(builder, "portage_send", {
+      text: "@lead attached notes",
+      artifactIds: [artifactId],
+    });
+    expect(sent.isError).toBe(false);
+    expect(sent.text).toContain("s_lead:");
+
+    const inbox = await call(lead, "portage_inbox");
+    expect(inbox.text).toContain("attached notes");
+    expect(inbox.text).toContain(`artifactId=${artifactId}`);
+
+    const got = await call(lead, "portage_artifact_get", { artifactId });
+    expect(got.isError).toBe(false);
+    expect(got.text).toContain("name=notes.md");
+    const b64 = /contentBase64=(\S+)/.exec(got.text)?.[1] ?? "";
+    expect(Buffer.from(b64, "base64").toString("utf8")).toBe("# notes from builder");
+  });
+
   it("an agent that never reads cannot be mistaken for one that did (submitted stays unread)", async () => {
     const before = (await snapshot()).receipts.filter((r: Json) => r.proofLevel === "agent_ack").length;
     await post("/api/conversations/room_dev/send", { text: "没人读的消息", idempotencyKey: "mcp_unread" });

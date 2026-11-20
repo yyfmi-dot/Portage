@@ -12,6 +12,11 @@ export type ContextCompileInput = {
   artifacts?: Artifact[];
   recipientLabel: string;
   sourceLabel?: string;
+  /**
+   * `direct`: lean envelope (marker + body [+ artifacts]) — the agent answers in its native session.
+   * `room`: layered collaboration constraints + how to reply through Portage.
+   */
+  scope?: "direct" | "room";
   /** Room messages are answered through Portage; a direct chat is answered natively. */
   replyThroughPortage?: boolean;
   maxContextBytes: number;
@@ -51,48 +56,63 @@ const DROP_ORDER = [L.global, L.workspace, L.policy, L.room];
 
 /**
  * Compile short collaboration constraints + original message.
- * Does not invent a new persona — layers are labeled as room conventions.
+ * Direct DMs stay lean (marker + body); rooms keep layered guidance without persona rewrite.
  */
 export function compileContext(input: ContextCompileInput): ContextSnapshot {
+  const scope = input.scope ?? (input.replyThroughPortage || input.room || input.policy ? "room" : "direct");
   const layers: Layer[] = [];
-  const pushDoc = (label: string, doc?: PolicyDocument | null) => {
-    const text = doc ? policyDocumentBody(doc.markdown) : "";
-    if (doc && text) layers.push({ label, droppable: true, text: `[${label} · v${doc.publishedRevision} · guidance only; it never rewrites your native identity]\n${text}` });
-  };
 
-  pushDoc(L.global, input.global);
-  pushDoc(L.workspace, input.workspace);
-  pushDoc(L.room, input.room);
+  if (scope === "room") {
+    const pushDoc = (label: string, doc?: PolicyDocument | null) => {
+      const text = doc ? policyDocumentBody(doc.markdown) : "";
+      if (doc && text) layers.push({ label, droppable: true, text: `[${label} · v${doc.publishedRevision}]\n${text}` });
+    };
 
-  if (input.policy) {
-    layers.push({
-      label: L.policy,
-      droppable: true,
-      text: [
-        `[${L.policy}]`,
-        `wake.mode: ${input.policy.wakeMode}`,
-        `budget.max_auto_rounds: ${input.policy.maxAutoRounds}`,
-        `budget.agent_messages_per_minute: ${input.policy.agentMessagesPerMinute}`,
-        input.policy.maxWakeupsPerTrace ? `budget.max_wakeups_per_trace: ${input.policy.maxWakeupsPerTrace}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    });
+    pushDoc(L.global, input.global);
+    pushDoc(L.workspace, input.workspace);
+    pushDoc(L.room, input.room);
+
+    if (input.policy) {
+      layers.push({
+        label: L.policy,
+        droppable: true,
+        text: [
+          `[${L.policy}]`,
+          `wake=${input.policy.wakeMode}`,
+          `max_auto_rounds=${input.policy.maxAutoRounds}`,
+          `msgs_per_min=${input.policy.agentMessagesPerMinute}`,
+          input.policy.maxWakeupsPerTrace ? `max_wakeups_per_trace=${input.policy.maxWakeupsPerTrace}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      });
+    }
   }
 
   const textPart = input.message.parts.find((p) => p.kind === "text" || p.kind === "markdown");
   const body = textPart && "text" in textPart ? textPart.text : "";
-  const header = [
-    `[Recipient]\n${input.recipientLabel}\n(No role is injected; you keep your native session identity.)`,
-    input.sourceLabel ? `[From]\n${input.sourceLabel}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-  layers.push({
-    label: L.message,
-    droppable: false,
-    text: `${header}\n\n${messageMarker(input.message)}\n${body}`,
-  });
+  const marker = messageMarker(input.message);
+
+  if (scope === "direct") {
+    // Proof marker must stay verbatim for native_confirmed; everything else is noise in a DM.
+    layers.push({
+      label: L.message,
+      droppable: false,
+      text: input.sourceLabel ? `${marker}\nFrom: ${input.sourceLabel}\n${body}` : `${marker}\n${body}`,
+    });
+  } else {
+    const header = [
+      input.recipientLabel ? `To: ${input.recipientLabel}` : "",
+      input.sourceLabel ? `From: ${input.sourceLabel}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    layers.push({
+      label: L.message,
+      droppable: false,
+      text: header ? `${header}\n\n${marker}\n${body}` : `${marker}\n${body}`,
+    });
+  }
 
   if (input.artifacts?.length) {
     layers.push({
@@ -100,7 +120,7 @@ export function compileContext(input: ContextCompileInput): ContextSnapshot {
       droppable: false,
       text: [
         `[${L.artifacts}]`,
-        "These are Portage artifact receipts. Call portage_artifact_get with artifactId when you need the bytes.",
+        "Receipts only — call portage_artifact_get(artifactId) for bytes.",
         ...input.artifacts.map(
           (a) =>
             `- artifactId=${a.id} · ${a.originalName} · v${a.version} · ${a.byteSize} bytes · ${a.mime} · hash=${a.hash}`,
@@ -113,7 +133,7 @@ export function compileContext(input: ContextCompileInput): ContextSnapshot {
     layers.push({
       label: L.reply,
       droppable: false,
-      text: `[${L.reply}]\nReply with portage_send (replyToMessageId=${input.message.id}). To attach work products, call portage_artifact_put then pass the returned artifactIds to portage_send. To hand work to someone, @alias them in the text. If no reply is needed, you can skip it.\nYou can end your turn once it is sent: replies reach you from Portage as new messages, so there is no need to wait or poll your inbox.`,
+      text: `[${L.reply}]\nportage_send(replyToMessageId=${input.message.id}). Attach work: portage_artifact_put → artifactIds. @alias to hand off. Skip if no reply needed; do not poll inbox.`,
     });
   }
 

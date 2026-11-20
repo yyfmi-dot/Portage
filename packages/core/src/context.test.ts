@@ -35,16 +35,32 @@ describe("compileContext", () => {
     const snap = compileContext({
       room,
       message,
+      scope: "room",
       recipientLabel: "Lead · 统筹路由",
       maxContextBytes: 32768,
     });
     expect(snap.layers).toContain("Room collaboration.md");
     expect(snap.layers).toContain("Original message");
-    expect(snap.query).toContain("never rewrites your native identity");
+    expect(snap.query).toContain("[Room collaboration.md · v3]");
     expect(snap.query).toContain("请审查适配器");
     expect(snap.revisions.room).toBe(3);
     expect(snap.dropped).toEqual([]);
     expect(snap.overflow).toBe(false);
+  });
+
+  it("direct DMs are marker + body only (no global MD wall)", () => {
+    const snap = compileContext({
+      global: { ...room, id: "PORTAGE", scope: "global", markdown: "Do not rewrite identity.\n".repeat(20), publishedRevision: 1 },
+      message,
+      scope: "direct",
+      sourceLabel: "user",
+      recipientLabel: "Codex · vscode_cli",
+      maxContextBytes: 32768,
+    });
+    expect(snap.layers).toEqual(["Original message"]);
+    expect(snap.query).toBe(`[Original message · v1 · m1]\nFrom: user\n请审查适配器`);
+    expect(snap.query).not.toContain("Do not rewrite");
+    expect(snap.query).not.toContain("Recipient");
   });
 
   it("drops outer layers first to fit, and never cuts the message", () => {
@@ -53,6 +69,7 @@ describe("compileContext", () => {
       global,
       room,
       message,
+      scope: "room",
       recipientLabel: "Builder",
       maxContextBytes: 600,
     });
@@ -66,18 +83,25 @@ describe("compileContext", () => {
 
   it("flags overflow when the message alone does not fit instead of cutting it", () => {
     const long = { ...message, parts: [{ kind: "text" as const, text: "长".repeat(400) }] };
-    const snap = compileContext({ room, message: long, recipientLabel: "Builder", maxContextBytes: 300 });
+    const snap = compileContext({ room, message: long, scope: "room", recipientLabel: "Builder", maxContextBytes: 300 });
     expect(snap.overflow).toBe(true);
     expect(snap.dropped).toEqual(["Room collaboration.md"]);
     expect(snap.query).toContain("长".repeat(400));
   });
 
   it("tells room recipients how to answer through Portage, quoting the message id", () => {
-    const snap = compileContext({ message, recipientLabel: "Builder", replyThroughPortage: true, maxContextBytes: 32768 });
+    const snap = compileContext({
+      message,
+      scope: "room",
+      recipientLabel: "Builder",
+      replyThroughPortage: true,
+      maxContextBytes: 32768,
+    });
     expect(snap.layers.at(-1)).toBe("How to reply");
     expect(snap.query).toContain("replyToMessageId=m1");
-    const direct = compileContext({ message, recipientLabel: "Builder", maxContextBytes: 32768 });
+    const direct = compileContext({ message, scope: "direct", recipientLabel: "Builder", maxContextBytes: 32768 });
     expect(direct.layers).not.toContain("How to reply");
+    expect(direct.layers).toEqual(["Original message"]);
   });
 });
 

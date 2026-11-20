@@ -96,7 +96,7 @@ describe("daemon HTTP API L4 closed loop", () => {
     expect(leadText).toContain("请统筹推进适配器契约");
     expect(leadText).toContain("[Global PORTAGE.md · v1");
     expect(leadText).toContain("[Room collaboration.md · v2");
-    expect(leadText).toContain("current lead (routing)");
+    expect(leadText).toContain("· lead");
     expect(snap.contexts[user.json.deliveries[0].id].hash).toBeTruthy();
     expect(snap.contexts[user.json.deliveries[0].id].query).toBeUndefined();
     const context = await fetch(`${base}/api/deliveries/${user.json.deliveries[0].id}/context`).then((r) => r.json() as Promise<Json>);
@@ -196,7 +196,10 @@ describe("daemon HTTP API L4 closed loop", () => {
     const reviewer = snap.sessions.find((s: { id: string }) => s.id === "s_reviewer");
     const text = latestInboxText(reviewer.provider, reviewer.nativeIdentity);
     expect(text).toContain("私聊审查");
+    expect(text).toContain("[Original message ·");
     expect(text).not.toContain("collaboration.md");
+    expect(text).not.toContain("PORTAGE.md");
+    expect(text).not.toContain("Recipient");
 
     const got = await post("/api/agent/s_builder/artifacts/get", { artifactId: artifact.json.id });
     expect(got.status).toBe(200);

@@ -369,7 +369,9 @@ Adapter 提供写入字节、提交输入、原生消息确认等分层凭据。
 
 私聊按自身 Conversation 选择适用文档；房间约定只进入对应范围的 query。Artifacts 记录采用原生附件还是文件引用，ContextSnapshot 保留最终注入内容和体积，便于用户预览与事后核对。
 
-每次经 Portage 发往原生 session 的 query，默认可贴入适用最高层 MD 与房间协作约定。原始正文与编译 payload 分开保存，转发引用原始消息，每次只编译一遍。
+**注入体积（实现）：** 私聊（DM）只注入 `[Original message · vN · id]` 标记 + 正文（有附件时加 Artifacts 收据），不贴 PORTAGE.md / 房间 MD——agent 在原生会话里直接回复。房间消息才叠 Global / Workspace / collaboration.md / Execution policy / How to reply；套话压成短标签。标记行必须保留，供原生回读 `native_confirmed`。
+
+每次经 Portage 发往原生 session 的 query，房间默认可贴入适用最高层 MD 与协作约定。原始正文与编译 payload 分开保存，转发引用原始消息，每次只编译一遍。
 
 权限与预算取各适用层级的约束交集。下层可收窄既有范围，扩大授权需要调用者有相应管理权限。行为说明标注层级与来源；**原生宿主与模型既有角色优先**，Portage 文本只作补充约束。
 

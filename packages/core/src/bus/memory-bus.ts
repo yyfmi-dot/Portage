@@ -1741,16 +1741,20 @@ export class MemoryBus implements PortageBusApi {
       .map((p) => this.artifacts.get(p.artifactId))
       .filter((a): a is Artifact => Boolean(a));
     return compileContext({
-      global: this.getPolicyDocument("global", "PORTAGE"),
-      workspace: this.getPolicyDocument("workspace", this.workspaceId),
+      // DMs: marker + body (+ artifacts). Rooms: layered MD + compact routing headers.
+      global: isRoom ? this.getPolicyDocument("global", "PORTAGE") : null,
+      workspace: isRoom ? this.getPolicyDocument("workspace", this.workspaceId) : null,
       room: roomDoc,
       policy: isRoom ? policy : null,
       message,
       artifacts,
+      scope: isRoom ? "room" : "direct",
       recipientLabel: recipient
-        ? `${recipient.displayName} · ${recipient.provider}/${recipient.host}${isCoordinator ? " · current lead (routing)" : ""}`
+        ? `${recipient.displayName} · ${recipient.provider}/${recipient.host}${isCoordinator ? " · lead" : ""}`
         : "room member",
-      sourceLabel: `${this.senderLabel(message.senderId)} → ${isRoom ? conversation.title : "direct message"} · scope=${conversation.id}`,
+      sourceLabel: isRoom
+        ? `${this.senderLabel(message.senderId)} → ${conversation.title}`
+        : this.senderLabel(message.senderId),
       replyThroughPortage: isRoom,
       maxContextBytes: policy.maxContextBytes,
     });
