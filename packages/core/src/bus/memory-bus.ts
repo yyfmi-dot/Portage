@@ -600,7 +600,20 @@ export class MemoryBus implements PortageBusApi {
     let lastInput = findLast(own, (e) => e.kind === "input");
     for (const observation of read.observations) {
       const id = `${sessionId}:${observation.nativeEventId}`;
-      if (this.nativeEventIds.has(id)) continue;
+      if (this.nativeEventIds.has(id)) {
+        // Older builds ingested only the first assistant bubble per Portage parent. Re-sync still
+        // retries later bubbles; send() idempotency keeps already-imported ones from duplicating.
+        const existing = this.nativeEvents.find((e) => e.id === id);
+        if (
+          existing?.kind === "output" &&
+          existing.correlation === "inferred" &&
+          existing.correlatedMessageId &&
+          existing.text.trim()
+        ) {
+          void this.ingestNativeReply(sessionId, existing);
+        }
+        continue;
+      }
       const event: NativeEvent = {
         id,
         sessionId,
@@ -1343,10 +1356,9 @@ export class MemoryBus implements PortageBusApi {
     const parent = this.messageById.get(parentId);
     const participant = this.participantForSession(sessionId);
     if (!parent) return;
-    const already = [...this.messages.values()].some(
-      (m) => m.senderId === participant.id && m.causalParentIds.includes(parentId),
-    );
-    if (already) return;
+    // A single native turn often emits several assistant messages (status → tool → final answer).
+    // Ingest each once; idempotency on nativeEventId prevents duplicates when the transcript is
+    // re-read. Do not stop after the first reply to this parent — that dropped the real answer.
     const direct = parent.conversationId === `dm_${sessionId}`;
     try {
       await this.send({

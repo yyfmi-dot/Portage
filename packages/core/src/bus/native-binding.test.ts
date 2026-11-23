@@ -155,6 +155,34 @@ describe("native read-back", () => {
     expect(bus.takeDirty().nativeEvents).toHaveLength(7);
   });
 
+  it("ingests every assistant bubble in a turn, not only the first status line", async () => {
+    const { bus, dm, injected } = setup();
+    const sent = await dm("s_lead", "现在额度情况怎么样", "multi1");
+    const query = injected[0]!.query;
+    bus.recordNativeRead("s_lead", "codex-native", {
+      observations: [
+        { nativeEventId: "L10", nativeTime: "t1", kind: "input", text: query },
+        { nativeEventId: "L11", nativeTime: "t2", kind: "output", text: "我用路由管理技能查一下。" },
+        {
+          nativeEventId: "L12",
+          nativeTime: "t3",
+          kind: "output",
+          text: "截至今日，dev@jolaris.ai 还剩 52%。",
+        },
+      ],
+      cursor: 12,
+      source: "/r.jsonl",
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    const replies = [...bus.messages.values()].filter(
+      (m) => m.senderId === "p_lead" && m.causalParentIds.includes(sent.message.id),
+    );
+    expect(replies.map((m) => m.parts.find((p) => p.kind === "text")?.text)).toEqual([
+      "我用路由管理技能查一下。",
+      "截至今日，dev@jolaris.ai 还剩 52%。",
+    ]);
+  });
+
   it("settles an uncertain submission when its input shows up in the transcript, but never another session's", async () => {
     let mode: "uncertain" | "ok" = "uncertain";
     const { bus, dm, state } = setup({
