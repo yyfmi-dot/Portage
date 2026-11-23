@@ -9,7 +9,8 @@ export function hashIndex(value: string, size: number) {
   return h % size;
 }
 
-export const providerLabel = (p: string) => (p === "codex" ? "Codex" : p === "claude" ? "Claude" : p);
+export const providerLabel = (p: string) =>
+  p === "codex" ? "Codex" : p === "claude" ? "Claude" : p === "antigravity" ? "Antigravity" : p;
 export const hostLabel = (h: string) =>
   ({ terminal: "Terminal", vscode_cli: "VS Code", app: "Desktop app", headless: "No window" })[h] ?? h;
 

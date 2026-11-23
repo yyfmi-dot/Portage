@@ -7,7 +7,7 @@ const execFileAsync = promisify(execFile);
 export type DiscoveredProcess = {
   pid: number;
   name: string;
-  provider: "codex" | "claude" | "unknown";
+  provider: "codex" | "claude" | "antigravity" | "unknown";
   commandLine?: string;
   /** Where the CLI runs, inferred from its ancestors (an editor's integrated terminal vs. a plain terminal). */
   host?: "terminal" | "vscode_cli";
@@ -116,21 +116,21 @@ Get-CimInstance Win32_Process |
 type WindowsRow = { ProcessId: number; ParentProcessId: number; Name?: string; CommandLine?: string };
 
 const NOT_A_SESSION =
-  /crashpad|portage-mcp|process-discovery|app-server|code-mode-host|\s(mcp|mcp-server)(\s|$)|--print-config|\s--version(\s|$)|ChatGPT\.(exe|app)|Claude\.app|Codex Framework/i;
+  /crashpad|portage-mcp|process-discovery|app-server|code-mode-host|\s(mcp|mcp-server)(\s|$)|--print-config|\s--version(\s|$)|ChatGPT\.(exe|app)|Claude\.app|Codex Framework|Antigravity\.(exe|app)/i;
 
-/** An interactive coding-agent CLI: the codex/claude executable itself, or a node shim launching it. */
+/** An interactive coding-agent CLI: the codex/claude/agy executable itself, or a node shim launching it. */
 export function isAgentCli(row: { name: string; commandLine: string }): boolean {
   if (!row.commandLine || NOT_A_SESSION.test(row.commandLine)) return false;
-  if (/^(codex|claude)(\.exe)?$/i.test(row.name)) return true;
-  if (!/^(node|bun|codex|claude)/i.test(row.name)) return false;
+  if (/^(codex|claude|agy)(\.exe)?$/i.test(row.name)) return true;
+  if (!/^(node|bun|codex|claude|agy)/i.test(row.name)) return false;
   const firstArgs = row.commandLine.split(/\s+/).slice(0, 2).join(" ");
   return (
-    /(^|[\\/])(codex|claude)(\.cmd|\.exe|\.js|\.mjs)?(\s|$)/i.test(firstArgs) ||
+    /(^|[\\/])(codex|claude|agy)(\.cmd|\.exe|\.js|\.mjs)?(\s|$)/i.test(firstArgs) ||
     /[\\/]@(anthropic-ai[\\/]claude-code|openai[\\/]codex)[\\/]/i.test(firstArgs)
   );
 }
 
-const EDITOR = /Visual Studio Code|Code Helper|\bCode\.exe\b|Cursor( Helper)?|Cursor\.exe|VSCodium|Windsurf/i;
+const EDITOR = /Visual Studio Code|Code Helper|\bCode\.exe\b|Cursor( Helper)?|Cursor\.exe|VSCodium|Windsurf|Antigravity/i;
 
 function inferHost(row: ProcessRow, byPid: Map<number, ProcessRow>): DiscoveredProcess["host"] {
   let current = byPid.get(row.ppid);
@@ -145,7 +145,7 @@ export function processesToEndpoints(
   processes: DiscoveredProcess[],
 ): DiscoveredEndpoint[] {
   return processes
-    .filter((p) => p.provider === "codex" || p.provider === "claude")
+    .filter((p) => p.provider === "codex" || p.provider === "claude" || p.provider === "antigravity")
     .map((p) => ({
       suggestedSessionKey: `${p.provider}:pid:${p.pid}`,
       provider: p.provider,
@@ -168,5 +168,6 @@ function inferProvider(name: string, commandLine: string): DiscoveredProcess["pr
   const hay = `${name} ${commandLine}`.toLowerCase();
   if (/\bcodex\b/.test(hay)) return "codex";
   if (/\bclaude\b/.test(hay)) return "claude";
+  if (/\bagy\b|\bantigravity\b/.test(hay)) return "antigravity";
   return "unknown";
 }

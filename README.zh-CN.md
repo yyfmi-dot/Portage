@@ -5,7 +5,7 @@
 <h1 align="center">Portage</h1>
 
 <p align="center">
-  <b>把你已有的 Codex、Claude Code 会话放进同一个房间协作，每一条投递都有凭据可查。</b>
+  <b>把你已有的 Codex、Claude Code、Antigravity 会话放进同一个房间协作，每一条投递都有凭据可查。</b>
 </p>
 
 <p align="center">
@@ -29,8 +29,8 @@ Portage 是一个本地 Daemon 加 Web 界面，统一管理原生 agent 会话�
 
 ## 功能特性
 
-- **直接用已有会话**：从 Codex、Claude Code 自己的会话记录发现会话，也能发现正在运行的 CLI 进程；登记即可，不用重建。
-- **原生唤醒**：投递即以该会话身份恢复一次 headless 回合（`codex exec resume` / `claude -p --resume`），继承会话的沙箱与权限设置，并临时挂上 Portage MCP 让 agent 回复，不改你的配置。私聊注入很短（`[Original message · …]` + 正文）；房间消息才叠加精简规则层。
+- **直接用已有会话**：从 Codex、Claude Code、Antigravity 自己的会话记录发现会话，也能发现正在运行的 CLI 进程；登记即可，不用重建。
+- **原生唤醒**：投递即以该会话身份恢复一次 headless 回合（`codex exec resume` / `claude -p --resume` / `agy -p= --conversation`），继承会话的沙箱与权限设置，并临时挂上 Portage MCP 让 agent 回复，不改你的配置。私聊注入很短（`[Original message · …]` + 正文）；房间消息才叠加精简规则层。
 - **产物不塞进 prompt**：出站只带 artifact 收据；agent 经 MCP `portage_artifact_get` / `portage_artifact_put` 读写，并用 `portage_send.artifactIds` 挂回。
 - **房间协作规则**：统筹 / Swarm / 仅 @ / 手动四种唤醒模式；自动轮次、每分钟消息、活跃席位、单链路唤醒四项预算；`collaboration.md` 的 YAML 策略头经校验后执行。
 - **凭据而非猜测**：每份投递沿「已提交 → 原生记录已确认（从会话记录回读）→ agent 已读（经 MCP 读取）」逐级确认；结果不明的提交标为 `uncertain`，回读核对后才安全重试。
@@ -42,7 +42,7 @@ Portage 是一个本地 Daemon 加 Web 界面，统一管理原生 agent 会话�
 
 ## 快速开始
 
-需要 **Node.js 22.13+**（内置 `node:sqlite`），macOS 或 Linux。唤醒会话还需要安装 Codex CLI 或 Claude Code。
+需要 **Node.js 22.13+**（内置 `node:sqlite`），macOS 或 Linux。唤醒会话还需要安装 Codex CLI、Claude Code 和/或 Antigravity CLI（`agy`）。
 
 ```bash
 git clone git@github.com:yyfmi-dot/Portage.git
@@ -91,7 +91,7 @@ npm run dev:web        # 另开一个终端，UI：http://127.0.0.1:5173
 | [docs/MVP.md](docs/MVP.md) | 真实接入验收 |
 | [docs/TESTPLAN.md](docs/TESTPLAN.md) | 模块→链路→联动深测计划 |
 | [packages/core](packages/core) | 领域类型、唤醒/投递、ContextCompiler、MemoryBus（EventLog、Artifact）、SQLite 快照 |
-| [packages/adapters](packages/adapters) | 原生回合适配器（Codex / Claude Code：读会话记录发现、headless resume 提交、回读确认）、FileInbox、CLI 进程发现 |
+| [packages/adapters](packages/adapters) | 原生回合适配器（Codex / Claude Code / Antigravity：读会话记录发现、headless resume 提交、回读确认）、FileInbox、CLI 进程发现 |
 | [packages/daemon](packages/daemon) | 本地 HTTP API + SSE 事件流 |
 | [packages/mcp](packages/mcp) | MCP 桥接：让 CLI 里的 agent 读取投递、回复、报告忙闲 |
 | [apps/web](apps/web) | 正式 UI：原型设计系统 + Daemon 实时数据（按视图拆分的模块，画布只在有运动时绘制） |
@@ -120,7 +120,7 @@ npm run daemon:discover
 
 「＋ 登记本机会话」列出两类来源：
 
-- **原生会话**（`codex-native` / `claude-native`）：从 `~/.codex/sessions`（`CODEX_HOME`）和 `~/.claude/projects`（`CLAUDE_CONFIG_DIR`）的会话记录发现，标题取第一条真实用户输入。投递即以该会话身份恢复一次 headless 回合（`codex exec resume <id>` / `claude -p --resume <id>`），编译后的 query 走 stdin，并临时挂上 Portage MCP，让 agent 可以 `portage_send` 回复——不改用户自己的 MCP 配置。回合继承会话最近一次的沙箱 / 权限设置（Codex `sandbox_policy`，Claude `permissionMode`），因为 `exec resume` 默认会退回只读。
+- **原生会话**（`codex-native` / `claude-native` / `antigravity-native`）：从 `~/.codex/sessions`、`~/.claude/projects`、`~/.gemini/antigravity`（及 `antigravity-cli`）的会话记录发现，标题取会话自有标题或第一条真实用户输入。投递即以该会话身份恢复一次 headless 回合（`codex exec resume <id>` / `claude -p --resume <id>` / `agy -p= --conversation <id>`），编译后的 query 走 stdin，并临时挂上 Portage MCP，让 agent 可以 `portage_send` 回复——不改用户自己的长期 MCP 配置（Antigravity 通过工作区 `.agents/mcp_config.json` 挂载）。回合继承会话最近一次的沙箱 / 权限设置（Codex `sandbox_policy`，Claude `permissionMode`），因为 `exec resume` 默认会退回只读。
 - **进程会话**（FileInbox）：正在运行的 CLI 进程，投递写入收件箱文件，agent 经 MCP 读取（见下一节）。
 
 原生会话的投递规则：

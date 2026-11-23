@@ -13,6 +13,13 @@ export type TurnCli = {
   signal(line: Record<string, any>): { started?: true; failed?: string; done?: true } | undefined;
   /** Rename the native session through the CLI's own mechanism, so its app and CLI show the new title. */
   rename(input: { binary: string; nativeSessionId: string; transcript: string; title: string }): Promise<void>;
+  /** Wrap the compiled query for stdin when the CLI expects a framed payload (Antigravity NDJSON). */
+  encodeInput?(query: string): string;
+  /**
+   * Prepare the workspace for one turn (e.g. write a temporary MCP config). Return a cleanup that
+   * runs when the turn process exits.
+   */
+  prepareTurn?(input: { session: Session; mcp: McpLaunch; workdir?: string }): Promise<(() => Promise<void>) | void>;
   /**
    * When another client holds the thread writer (IDE idle-but-loaded), enqueue input for that
    * holder to run — same session, no need to close it. Codex: `codex queue`.
@@ -81,6 +88,7 @@ export class NativeTurnAdapter extends TranscriptAdapter {
     const mcp = { command: this.options.mcp.command, args: [...this.options.mcp.args, "--session", session.id] };
     const path = await this.transcript(session);
     const policy = path ? await readPolicy(this.options.dialect, path).catch(() => ({})) : {};
+    const cleanup = await this.options.cli.prepareTurn?.({ session, mcp, workdir: session.workdir });
     const child = spawn(binary, this.options.cli.args({ nativeSessionId: session.nativeIdentity, mcp, policy }), {
       cwd: session.workdir,
       stdio: ["pipe", "pipe", "pipe"],
@@ -130,6 +138,7 @@ export class NativeTurnAdapter extends TranscriptAdapter {
 
     child.on("close", (code) => {
       this.turns.delete(session.id);
+      void cleanup?.();
       const error = failure ?? (code === 0 ? undefined : lastLine(stderr) || `${this.provider} exited with ${code}`);
       // Writer lock refused the resume: no Portage turn ever started, so don't report a failed turn.
       if (error && isActiveWriterConflict(error)) return;
@@ -138,7 +147,7 @@ export class NativeTurnAdapter extends TranscriptAdapter {
     child.stdin!.on("error", () => {
       // the CLI exited before reading stdin; reported through `close`
     });
-    child.stdin!.end(compiledQuery);
+    child.stdin!.end(this.options.cli.encodeInput?.(compiledQuery) ?? compiledQuery);
 
     const outcome = await startWait;
     // Only a Portage-owned headless child counts as running; `codex queue` hands the turn to the IDE.

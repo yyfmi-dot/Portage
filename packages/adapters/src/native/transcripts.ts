@@ -1,4 +1,5 @@
 import { open, readdir, readFile, stat } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { NativeObservation } from "@portage/core";
@@ -32,7 +33,7 @@ export type NativeTurnPolicy = {
  * of a line is a stable cursor and a stable native event id.
  */
 export type TranscriptDialect = {
-  provider: "codex" | "claude";
+  provider: "codex" | "claude" | "antigravity";
   /** Newest transcripts first, at most `limit`. */
   recent(limit: number): Promise<string[]>;
   locate(nativeSessionId: string): Promise<string | undefined>;
@@ -269,6 +270,208 @@ export function claudeDialect(root = join(process.env.CLAUDE_CONFIG_DIR ?? join(
           const cleaned = cleanHostMarkup(text) || text;
           return cleaned ? [{ nativeEventId: id, nativeTime: at, kind: "output", text: cleaned }] : [];
         }
+      }
+      return [];
+    },
+  };
+}
+
+// ── Antigravity: ~/.gemini/antigravity/brain/<id>/.system_generated/logs/transcript*.jsonl ─────
+
+const USER_REQUEST = /^<USER_REQUEST>\n?([\s\S]*?)(?:\n?<\/USER_REQUEST>|$)/;
+
+/** Strip Antigravity's USER_REQUEST envelope so native-record bodies stay human-readable. */
+export function unwrapAntigravityUserText(text: string) {
+  const match = USER_REQUEST.exec(text);
+  if (match) return match[1]!.trim();
+  return text.replace(/<\/?USER_REQUEST>/g, "").trim();
+}
+
+function antigravityTranscriptPath(brainRoot: string, id: string) {
+  const logs = join(brainRoot, id, ".system_generated", "logs");
+  return { full: join(logs, "transcript_full.jsonl"), clipped: join(logs, "transcript.jsonl") };
+}
+
+async function antigravityExistingTranscript(brainRoot: string, id: string) {
+  const { full, clipped } = antigravityTranscriptPath(brainRoot, id);
+  if (await stat(full).then(() => true, () => false)) return full;
+  if (await stat(clipped).then(() => true, () => false)) return clipped;
+  return undefined;
+}
+
+function fileUriToPath(uri: string) {
+  try {
+    const url = new URL(uri);
+    if (url.protocol === "file:") return decodeURIComponent(url.pathname);
+  } catch {
+    // not a URL
+  }
+  return uri.startsWith("file://") ? decodeURIComponent(uri.slice("file://".length)) : uri;
+}
+
+type AntigravitySummary = {
+  conversation_id: string;
+  title: string;
+  preview: string;
+  last_modified_time: string;
+  workspace_uris: string;
+  nesting_depth: number;
+  status: string;
+};
+
+/**
+ * Antigravity conversations live under `~/.gemini/antigravity` (IDE) and
+ * `~/.gemini/antigravity-cli` (CLI). Titles and workspaces come from each root's
+ * `conversation_summaries.db`; the step log Portage reads back is `transcript_full.jsonl`
+ * (falling back to the clipped `transcript.jsonl`). Nested research subagents
+ * (`nesting_depth > 0`) are skipped.
+ */
+export function antigravityDialect(
+  roots: string | string[] = [
+    join(homedir(), ".gemini", "antigravity"),
+    join(homedir(), ".gemini", "antigravity-cli"),
+  ],
+): TranscriptDialect {
+  const rootList = (Array.isArray(roots) ? roots : [roots]).map((root) => ({
+    root,
+    brain: join(root, "brain"),
+    summaries: join(root, "conversation_summaries.db"),
+  }));
+  const openSummaries = (summaries: string) => {
+    try {
+      return new DatabaseSync(summaries, { readOnly: true });
+    } catch {
+      return undefined;
+    }
+  };
+  const summaryRow = (id: string): AntigravitySummary | undefined => {
+    for (const { summaries } of rootList) {
+      const db = openSummaries(summaries);
+      if (!db) continue;
+      try {
+        const row = db
+          .prepare(
+            `SELECT conversation_id, title, preview, last_modified_time, workspace_uris, nesting_depth, status
+             FROM conversation_summaries WHERE conversation_id = ?`,
+          )
+          .get(id) as AntigravitySummary | undefined;
+        if (row) return row;
+      } finally {
+        db.close();
+      }
+    }
+    return undefined;
+  };
+  const rootForPath = (path: string) =>
+    rootList.find(({ brain }) => path.startsWith(brain + "/") || path.startsWith(brain + "\\")) ?? rootList[0]!;
+  return {
+    provider: "antigravity",
+    async recent(limit) {
+      const ranked: Array<{ path: string; mtime: number }> = [];
+      const seen = new Set<string>();
+      for (const { brain, summaries } of rootList) {
+        const db = openSummaries(summaries);
+        if (db) {
+          try {
+            const rows = db
+              .prepare(
+                `SELECT conversation_id, last_modified_time FROM conversation_summaries
+                 WHERE IFNULL(nesting_depth, 0) = 0
+                 ORDER BY last_modified_time DESC LIMIT ?`,
+              )
+              .all(limit) as Array<{ conversation_id: string; last_modified_time: string }>;
+            for (const row of rows) {
+              if (seen.has(row.conversation_id)) continue;
+              const path = await antigravityExistingTranscript(brain, row.conversation_id);
+              if (!path) continue;
+              seen.add(row.conversation_id);
+              ranked.push({ path, mtime: Date.parse(row.last_modified_time) || 0 });
+            }
+          } finally {
+            db.close();
+          }
+        }
+        // When the summaries DB is missing, fall back to brain folders (nesting unknown).
+        if (!db) {
+          for (const name of await listDesc(brain)) {
+            if (seen.has(name)) continue;
+            const path = await antigravityExistingTranscript(brain, name);
+            if (!path) continue;
+            seen.add(name);
+            ranked.push({ path, mtime: (await stat(path)).mtimeMs });
+          }
+        }
+      }
+      return ranked.sort((a, b) => b.mtime - a.mtime).slice(0, limit).map((f) => f.path);
+    },
+    async locate(id) {
+      for (const { brain } of rootList) {
+        const path = await antigravityExistingTranscript(brain, id);
+        if (path) return path;
+      }
+      return undefined;
+    },
+    async describe(path) {
+      const parts = path.split(/[/\\]/);
+      const sys = parts.lastIndexOf(".system_generated");
+      const id = sys > 0 ? parts[sys - 1] : undefined;
+      if (!id) return undefined;
+      const row = summaryRow(id);
+      if (row && Number(row.nesting_depth ?? 0) > 0) return undefined;
+      const { records, mtime } = await readHead(path);
+      const firstInput = records.flatMap((r, i) => this.parse(r, i)).find((o) => o.kind === "input");
+      let workdir = "";
+      try {
+        const uris = JSON.parse(row?.workspace_uris || "[]") as string[];
+        workdir = uris[0] ? fileUriToPath(uris[0]) : "";
+      } catch {
+        workdir = "";
+      }
+      const title =
+        (row?.title && row.title.trim()) ||
+        (row?.preview && row.preview.trim()) ||
+        (await this.title(path, id)) ||
+        titleOf(firstInput?.text);
+      return {
+        nativeSessionId: id,
+        path,
+        workdir,
+        host: path.includes("antigravity-cli") ? "terminal" : "app",
+        title: title || `Antigravity · ${id.slice(0, 8)}`,
+        updatedAt: row?.last_modified_time
+          ? new Date(row.last_modified_time).toISOString()
+          : new Date(mtime).toISOString(),
+      };
+    },
+    async title(path, nativeSessionId) {
+      const row = summaryRow(nativeSessionId);
+      if (row?.title?.trim()) return row.title.trim();
+      if (row?.preview?.trim()) return row.preview.trim();
+      const { records } = await readHead(path);
+      const firstInput = records.flatMap((r, i) => this.parse(r, i)).find((o) => o.kind === "input");
+      return titleOf(firstInput?.text);
+    },
+    titleSource: (path) => rootForPath(path).summaries,
+    turnOf(record) {
+      if (record.type === "USER_INPUT") return "open";
+      if (record.type === "PLANNER_RESPONSE") return record.status === "RUNNING" ? "open" : "closed";
+      return undefined;
+    },
+    policyOf() {
+      return undefined;
+    },
+    parse(record, offset) {
+      const at = String(record.created_at ?? "");
+      const id = String(record.step_index ?? `L${offset}`);
+      if (record.type === "USER_INPUT") {
+        const text = unwrapAntigravityUserText(String(record.content ?? ""));
+        return text ? [{ nativeEventId: id, nativeTime: at, kind: "input", text }] : [];
+      }
+      if (record.type === "PLANNER_RESPONSE") {
+        const text = String(record.content ?? "").trim();
+        if (record.status === "RUNNING") return [{ nativeEventId: id, nativeTime: at, kind: "turn_started", text: "" }];
+        if (text) return [{ nativeEventId: id, nativeTime: at, kind: "output", text: cleanHostMarkup(text) || text }];
+        if (record.status === "DONE") return [{ nativeEventId: id, nativeTime: at, kind: "turn_completed", text: "" }];
       }
       return [];
     },

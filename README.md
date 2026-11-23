@@ -25,12 +25,12 @@
   <img src="docs/assets/demo.gif" width="900" alt="A coordinator session dispatches work to a builder session, which replies with an artifact; letters fly between desks as each delivery lands">
 </p>
 
-Portage is a local daemon and web app that connects agent sessions you already run. It doesn't need agents to speak a protocol like ACP or A2A, and it never makes model calls itself. Portage handles who talks to whom, which rules apply, and the record of every delivery. Each native host (Codex, Claude Code) keeps running its own model and tools.
+Portage is a local daemon and web app that connects agent sessions you already run. It doesn't need agents to speak a protocol like ACP or A2A, and it never makes model calls itself. Portage handles who talks to whom, which rules apply, and the record of every delivery. Each native host (Codex, Claude Code, Antigravity) keeps running its own model and tools.
 
 ## Features
 
-- **Bring your existing sessions.** Portage finds Codex and Claude Code sessions in their own transcripts (`~/.codex/sessions`, `~/.claude/projects`), and running CLIs through the process table. You register a session; you don't recreate it.
-- **Wake agents natively.** A delivery resumes the session as a headless turn (`codex exec resume` / `claude -p --resume`). The turn inherits the session's sandbox and permission settings, and Portage's MCP server is mounted only for that turn, so the agent can reply without you editing its config. Direct messages stay lean (`[Original message · …]` + your text); room deliveries add short rule layers.
+- **Bring your existing sessions.** Portage finds Codex, Claude Code and Antigravity sessions in their own transcripts (`~/.codex/sessions`, `~/.claude/projects`, `~/.gemini/antigravity` / `antigravity-cli`), and running CLIs through the process table. You register a session; you don't recreate it.
+- **Wake agents natively.** A delivery resumes the session as a headless turn (`codex exec resume` / `claude -p --resume` / `agy -p= --conversation`). The turn inherits the session's sandbox and permission settings, and Portage's MCP server is mounted only for that turn, so the agent can reply without you editing its config. Direct messages stay lean (`[Original message · …]` + your text); room deliveries add short rule layers.
 - **Artifacts without stuffing the prompt.** Outbound messages carry artifact receipts; agents call `portage_artifact_get` / `portage_artifact_put` over MCP and attach ids on `portage_send`.
 - **Rooms with real coordination rules.** Choose a wake mode per room: coordinator, open floor (swarm), @-mentions only, or manual. Budgets cap automatic rounds, agent messages per minute, concurrent seats and wake-ups per trace. A `collaboration.md` with a validated YAML policy header sets the rules.
 - **Proof, not hope.** Every delivery climbs a proof ladder: *submitted*, then *native confirmed* (read back from the session's own transcript), then *agent read* (the agent opened its inbox over MCP). When a submission's outcome is unclear, Portage marks it `uncertain` and checks it against the transcript, retrying only once it knows the message never landed.

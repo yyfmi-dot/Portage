@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, appendFile, readdir } from "node:fs/promises";
+import { access, appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -66,6 +66,76 @@ function queueCodexMessage(binary: string, threadId: string, message: string, cw
   });
 }
 
+/**
+ * `agy -p= --conversation <id> --input-format stream-json --output-format stream-json`:
+ * one headless turn on an existing Antigravity conversation. The prompt is one NDJSON user event on
+ * stdin; MCP is mounted for the turn via the workspace `.agents/mcp_config.json` (Antigravity has
+ * no per-invocation `--mcp-config` flag).
+ */
+export const antigravityCli: TurnCli = {
+  binary: () => resolveBinary("agy", process.env.PORTAGE_AGY_BIN, agyBundles),
+  args: ({ nativeSessionId }) => [
+    "-p=",
+    "--conversation",
+    nativeSessionId,
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--dangerously-skip-permissions",
+  ],
+  encodeInput: (query) => `${JSON.stringify({ event: "user", message: { content: query } })}\n`,
+  signal: (line) => {
+    if (line.event === "init") return { started: true };
+    if (line.event === "result") {
+      const result = line.result ?? {};
+      if (String(result.status ?? "").toUpperCase() === "ERROR" || result.error)
+        return { failed: String(result.error ?? result.response ?? "turn failed") };
+      return { done: true };
+    }
+    return undefined;
+  },
+  // Antigravity's `/rename` is TUI-only; titles still come from its conversation summaries DB.
+  rename: async () => undefined,
+  async prepareTurn({ workdir, mcp }) {
+    if (!workdir) return undefined;
+    const agents = join(workdir, ".agents");
+    const configPath = join(agents, "mcp_config.json");
+    await mkdir(agents, { recursive: true });
+    let previous: string | undefined;
+    let parsed: { mcpServers?: Record<string, unknown> } = {};
+    try {
+      previous = await readFile(configPath, "utf8");
+      parsed = JSON.parse(previous) as { mcpServers?: Record<string, unknown> };
+    } catch {
+      previous = undefined;
+      parsed = {};
+    }
+    const servers = { ...(parsed.mcpServers ?? {}) };
+    servers.portage = {
+      command: mcp.command,
+      args: mcp.args,
+      timeoutSeconds: 30,
+    };
+    await writeFile(configPath, `${JSON.stringify({ ...parsed, mcpServers: servers }, null, 2)}\n`);
+    return async () => {
+      if (previous !== undefined) {
+        await writeFile(configPath, previous).catch(() => undefined);
+        return;
+      }
+      const now = JSON.parse(await readFile(configPath, "utf8").catch(() => "{}")) as {
+        mcpServers?: Record<string, unknown>;
+      };
+      if (now.mcpServers) delete now.mcpServers.portage;
+      if (!now.mcpServers || Object.keys(now.mcpServers).length === 0) {
+        await writeFile(configPath, "{}\n").catch(() => undefined);
+      } else {
+        await writeFile(configPath, `${JSON.stringify(now, null, 2)}\n`).catch(() => undefined);
+      }
+    };
+  },
+};
+
 /** `claude -p --resume <id>`: one turn on an existing session, prompt on stdin, stream-json on stdout. */
 export const claudeCli: TurnCli = {
   binary: () => resolveBinary("claude", process.env.PORTAGE_CLAUDE_BIN, claudeBundles),
@@ -121,4 +191,12 @@ async function codexBundles(): Promise<string[]> {
 
 async function claudeBundles(): Promise<string[]> {
   return [join(homedir(), ".claude", "local", "claude")];
+}
+
+async function agyBundles(): Promise<string[]> {
+  return [
+    join(homedir(), ".gemini", "bin", "agy"),
+    join(homedir(), ".antigravity", "antigravity", "bin", "agy"),
+    "/Applications/Antigravity.app/Contents/Resources/bin/agy",
+  ];
 }

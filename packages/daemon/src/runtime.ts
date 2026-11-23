@@ -5,6 +5,8 @@ import { join } from "node:path";
 import {
   FileInboxAdapter,
   NativeTurnAdapter,
+  antigravityCli,
+  antigravityDialect,
   claudeCli,
   claudeDialect,
   codexCli,
@@ -44,7 +46,7 @@ export type RuntimeOptions = {
   hydrate?: boolean;
   /** Daemon URL agents' MCP servers talk back to. */
   daemonUrl?: string;
-  /** Test seam: the native adapters to use instead of the real Codex / Claude CLIs. */
+  /** Test seam: the native adapters to use instead of the real Codex / Claude / Antigravity CLIs. */
   native?: (onTurnEnd: (end: TurnEnd) => void) => NativeTurnAdapter[];
 };
 
@@ -75,6 +77,13 @@ export function createRuntime(options: RuntimeOptions = {}): DaemonRuntime {
     options.native?.(onTurnEnd) ?? [
       new NativeTurnAdapter({ id: "codex-native", dialect: codexDialect(), cli: codexCli, mcp, onTurnEnd }),
       new NativeTurnAdapter({ id: "claude-native", dialect: claudeDialect(), cli: claudeCli, mcp, onTurnEnd }),
+      new NativeTurnAdapter({
+        id: "antigravity-native",
+        dialect: antigravityDialect(),
+        cli: antigravityCli,
+        mcp,
+        onTurnEnd,
+      }),
     ];
   const inbox = new FileInboxAdapter(paths.inbox);
   const adapters = new Map<string, SessionAdapter>([[inbox.id, inbox], ...native.map((a) => [a.id, a] as const)]);
